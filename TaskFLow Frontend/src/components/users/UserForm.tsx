@@ -1,28 +1,25 @@
 // src/components/users/UserForm.tsx
 
 import React, { useState, useEffect } from "react";
-import { Mail, User, Shield, CheckSquare, KeyRound } from "lucide-react";
+import { Mail, User, Shield, KeyRound } from "lucide-react";
 import { Button } from "../common/Button";
-import { userAPI, companyAPI, handleApiError } from "../../services/api";
+import { userAPI, companyAPI } from "../../services/api";
 import { User as UserType, Company } from "../../types";
 
 interface UserFormProps {
-  /** Must be passed from parent/context—contains user detail including role and company_id */
-  currentUser?: UserType; // Made optional
-  onSuccess?: () => void;
-  onClose: () => void;
+  currentUser?: UserType;        // if provided, form can be prefilled for edit; for now, only create is handled
+  onSuccess?: () => void;        // callback for parent to update user list etc
+  onClose: () => void;           // callback for closing the modal/dialog
 }
 
-/** Match your backend role strings exactly (lowercase with underscores) */
+/** Backend roles - match exactly */
 const ROLES = [
   { value: "user", label: "User" },
-  { value: "admin", label: "Admin" },
+  { value: "admin", label: "Admin" }
 ] as const;
 
 export const UserForm: React.FC<UserFormProps> = ({ currentUser, onSuccess, onClose }) => {
-  console.log('UserForm received currentUser:', currentUser);
-
-  // 🔥 BYPASS: Create a default user if none provided
+  // "Default" effective user - useful for required company, role during initial company_id set
   const effectiveUser = currentUser || {
     id: '1',
     name: 'Default Admin',
@@ -33,60 +30,56 @@ export const UserForm: React.FC<UserFormProps> = ({ currentUser, onSuccess, onCl
     isActive: true,
   };
 
-  // 🔥 BYPASS: All authentication checks are DISABLED
-  // No more "Please log in to add users" errors!
-
+  // Form state: match backend field names!
   const [formData, setFormData] = useState({
-    name: "",
+    username: "",
     email: "",
     password: "",
     role: "user" as UserType["role"],
-    canAssignTasks: false,
-    isActive: true,
-    company_id: effectiveUser.role === "admin" ? String(effectiveUser.company_id || "1") : "1", // Default to company 1
+    company_id: effectiveUser.role === "admin"
+      ? String(effectiveUser.company_id || "1")
+      : "1",
+    is_active: true,
   });
+
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // --- DATA SYNC ---
-  // Always try to fetch companies (no role restriction)
+  // Fetch companies initially (for dropdown)
   useEffect(() => {
-    companyAPI.getCompanies()
-      .then(setCompanies)
-      .catch((err) => {
-        console.error("Failed to fetch companies:", err);
-        // Don't set error - just continue without companies
-      });
+    (async () => {
+      try {
+        const companiesData = await companyAPI.getCompanies();
+        setCompanies(companiesData);
+      } catch (err) {
+        // optionally log; don't show to user
+        setCompanies([]);
+      }
+    })();
   }, []);
 
   const handleChange = <T extends keyof typeof formData>(
     key: T,
     value: typeof formData[T]
-  ) => setFormData((prev) => ({ ...prev, [key]: value }));
+  ) => {
+    setFormData((prev) => ({ ...prev, [key]: value }));
+  };
 
-  // --- VALIDATION & SUBMIT ---
-  // 🔥 BYPASS: Relaxed validation - company_id not strictly required
+  // Validation: require all fields
   const canSubmit =
-    !!formData.name &&
+    !!formData.username &&
     !!formData.email &&
-    !!formData.password;
+    !!formData.password &&
+    !!formData.company_id;
 
+  // Handle form submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    // 🔥 BYPASS: Auto-assign company_id if missing
-    const finalCompanyId = formData.company_id || "1"; // Default to company 1
-
-    console.log("[UserForm] Submitting:", {
-      ...formData,
-      role: formData.role,
-      company_id: Number(finalCompanyId),
-    });
-
     if (!canSubmit) {
-      setError("Name, email, and password are required.");
+      setError("Username, email, password, and company are required.");
       return;
     }
 
@@ -94,40 +87,45 @@ export const UserForm: React.FC<UserFormProps> = ({ currentUser, onSuccess, onCl
     try {
       await userAPI.createUser({
         email: formData.email,
-        username: formData.name,
+        username: formData.username,
         password: formData.password,
         role: formData.role,
-        company_id: Number(finalCompanyId),
+        company_id: Number(formData.company_id),
+        is_active: formData.is_active,
       });
+
       if (onSuccess) onSuccess();
       onClose();
-    } catch (err) {
-      console.error("Failed to create user:", err);
-      setError(handleApiError(err));
+
+    } catch (err: any) {
+      let errorMessage = "Failed to create user.";
+      if (err?.response?.data?.detail) {
+        errorMessage = err.response.data.detail;
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  // --- ROLE & COMPANY LOGIC ---
-  // 🔥 BYPASS: Always show company selector for flexibility
   const showCompanySelector = companies.length > 0;
 
-  // --- RENDER ---
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             <User className="w-4 h-4 inline mr-1" />
-            Full Name
+            Username
           </label>
           <input
             type="text"
-            value={formData.name}
-            onChange={(e) => handleChange("name", e.target.value)}
+            value={formData.username}
+            onChange={(e) => handleChange("username", e.target.value)}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Enter full name"
+            placeholder="Enter username"
             required
           />
         </div>
@@ -181,47 +179,39 @@ export const UserForm: React.FC<UserFormProps> = ({ currentUser, onSuccess, onCl
         </select>
       </div>
 
-      {/* Company Dropdown - Always show if companies are available */}
-      {showCompanySelector && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Company
-          </label>
+      {/* Company Dropdown */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Company *
+        </label>
+        {showCompanySelector ? (
           <select
             value={formData.company_id}
             onChange={(e) => handleChange("company_id", e.target.value)}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            required
           >
-            <option value="">Select company (optional)</option>
+            <option value="">Select company</option>
             {companies.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
           </select>
-        </div>
-      )}
+        ) : (
+          <div className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50">
+            Loading companies...
+          </div>
+        )}
+      </div>
 
       <div className="space-y-4">
         <div className="flex items-center space-x-3">
           <input
             type="checkbox"
-            id="canAssignTasks"
-            checked={formData.canAssignTasks}
-            onChange={(e) => handleChange("canAssignTasks", e.target.checked)}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-          />
-          <label htmlFor="canAssignTasks" className="text-sm text-gray-700">
-            <CheckSquare className="w-4 h-4 inline mr-1" />
-            Can assign tasks to other users
-          </label>
-        </div>
-        <div className="flex items-center space-x-3">
-          <input
-            type="checkbox"
             id="isActive"
-            checked={formData.isActive}
-            onChange={(e) => handleChange("isActive", e.target.checked)}
+            checked={formData.is_active}
+            onChange={(e) => handleChange("is_active", e.target.checked)}
             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
           <label htmlFor="isActive" className="text-sm text-gray-700">
@@ -241,7 +231,7 @@ export const UserForm: React.FC<UserFormProps> = ({ currentUser, onSuccess, onCl
           Cancel
         </Button>
         <Button type="submit" disabled={loading || !canSubmit}>
-          {loading ? "Adding..." : "Add User"}
+          {loading ? "Creating..." : "Create User"}
         </Button>
       </div>
     </form>

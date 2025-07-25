@@ -36,8 +36,7 @@ class UserResponse(BaseModel):
     role: UserRole
     company_id: Optional[int]
     is_active: bool
-    created_at: str
-    
+    created_at: datetime   
     model_config = {"from_attributes": True}
 
 # ── Auth (Fixed OAuth2 Implementation) ───────────────────────
@@ -181,8 +180,7 @@ def get_user(
         if user.id != current_user.id:
             raise HTTPException(status_code=403, detail="Access denied")
     
-    return user
-
+    return UserResponse.model_validate(user)
 @router.put("/users/{user_id}", response_model=UserResponse)
 def update_user(
     user_id: int,
