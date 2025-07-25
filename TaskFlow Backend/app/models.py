@@ -7,16 +7,19 @@ from datetime import datetime
 from app.database import Base
 import enum
 
+
 # ---------- ENUMS -------------------------------------------------
 class UserRole(enum.Enum):
     SUPER_ADMIN = "super_admin"
     ADMIN       = "admin"
     USER        = "user"
 
+
 class TaskStatus(enum.Enum):
     PENDING     = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED   = "completed"
+
 
 # ---------- COMPANY ----------------------------------------------
 class Company(Base):
@@ -32,6 +35,8 @@ class Company(Base):
     users = relationship("User", back_populates="company")
     tasks = relationship("Task", back_populates="company")
 
+
+# ---------- USER --------------------------------------------------
 # ---------- USER --------------------------------------------------
 class User(Base):
     __tablename__ = "users"
@@ -43,7 +48,9 @@ class User(Base):
     role            = Column(SqlaEnum(UserRole), default=UserRole.USER, nullable=False)
     company_id      = Column(Integer, ForeignKey("companies.id"))
     is_active       = Column(Boolean, default=True, nullable=False)
-    created_at: datetime         
+    
+    # Fixed datetime columns - REMOVE the problematic annotation line
+    created_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at      = Column(DateTime, onupdate=datetime.utcnow)
 
     # profile / extras
@@ -54,7 +61,7 @@ class User(Base):
     about_me            = Column(Text)
     preferred_language  = Column(String, default="en")
     can_assign_tasks    = Column(Boolean, default=False, nullable=False)
-    model_config = {"from_attributes": True}
+
     # relationships
     company = relationship("Company", back_populates="users")
 
@@ -71,6 +78,7 @@ class User(Base):
         back_populates="creator",
         foreign_keys="Task.created_by_id"
     )
+
 # ---------- TASK --------------------------------------------------
 class Task(Base):
     __tablename__ = "tasks"
@@ -85,13 +93,16 @@ class Task(Base):
     created_at     = Column(DateTime, default=datetime.utcnow, nullable=False)
     due_date       = Column(DateTime)
 
+    # relationships
     company = relationship("Company", back_populates="tasks")
+    
     # The person who needs to do this task
     assignee = relationship(
         "User",
         foreign_keys=[assigned_to_id],
         back_populates="allocated_tasks"
     )
+    
     # The person who created/assigned the task
     creator = relationship(
         "User",

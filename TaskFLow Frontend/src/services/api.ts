@@ -47,7 +47,7 @@ export const authAPI = {
   login: async (username: string, password: string): Promise<LoginResponse> => {
     try {
       const params = new URLSearchParams();
-      params.append('username', username); // Your backend uses 'username' field for email
+      params.append('username', username);
       params.append('password', password);
 
       const response: AxiosResponse<LoginResponse> = await api.post('/api/v1/login', params, {
@@ -56,7 +56,6 @@ export const authAPI = {
         },
       });
 
-      // Store the token
       if (response.data.access_token) {
         localStorage.setItem('access_token', response.data.access_token);
       }
@@ -77,7 +76,6 @@ export const authAPI = {
 
   logout: async (): Promise<void> => {
     try {
-      // Your backend doesn't have a logout endpoint, so just clear local storage
       localStorage.removeItem('access_token');
       localStorage.removeItem('auth');
     } catch (e) {
@@ -86,7 +84,7 @@ export const authAPI = {
   },
 };
 
-// ✅ User API - Updated for your RBAC endpoints
+// ✅ User API - Enhanced for UserList component compatibility
 export const userAPI = {
   getUsers: async (params?: {
     skip?: number;
@@ -95,37 +93,67 @@ export const userAPI = {
     role?: string;
     is_active?: boolean;
   }): Promise<User[]> => {
-    const queryParams = new URLSearchParams();
-    if (params?.skip) queryParams.append('skip', params.skip.toString());
-    if (params?.limit) queryParams.append('limit', params.limit.toString());
-    if (params?.company_id) queryParams.append('company_id', params.company_id.toString());
-    if (params?.role) queryParams.append('role', params.role);
-    if (params?.is_active !== undefined) queryParams.append('is_active', params.is_active.toString());
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.skip) queryParams.append('skip', params.skip.toString());
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+      if (params?.company_id) queryParams.append('company_id', params.company_id.toString());
+      if (params?.role) queryParams.append('role', params.role);
+      if (params?.is_active !== undefined) queryParams.append('is_active', params.is_active.toString());
 
-    const url = `/api/v1/users${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    const response: AxiosResponse<User[]> = await api.get(url);
-    return response.data;
+      const url = `/api/v1/users${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const response: AxiosResponse<User[]> = await api.get(url);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
-  getUser: async (userId: number): Promise<User> => {
-    const response: AxiosResponse<User> = await api.get(`/api/v1/users/${userId}`);
-    return response.data;
+  getUser: async (userId: string | number): Promise<User> => {
+    try {
+      const response: AxiosResponse<User> = await api.get(`/api/v1/users/${userId}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
   createUser: async (data: {
     email: string;
     username: string;
     password: string;
-    role: string;
+    role?: string;
     company_id?: number;
     is_active?: boolean;
+    full_name?: string;
+    phone_number?: string;
+    department?: string;
+    can_assign_tasks?: boolean;
   }): Promise<User> => {
-    const response: AxiosResponse<User> = await api.post('/api/v1/users', data);
-    return response.data;
+    try {
+      const userData = {
+        email: data.email,
+        username: data.username,
+        password: data.password,
+        role: data.role || 'user',
+        company_id: data.company_id,
+        is_active: data.is_active !== undefined ? data.is_active : true,
+        full_name: data.full_name,
+        phone_number: data.phone_number,
+        department: data.department,
+        can_assign_tasks: data.can_assign_tasks || false,
+      };
+
+      const response: AxiosResponse<User> = await api.post('/api/v1/users', userData);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
   updateUser: async (
-    userId: number,
+    userId: string | number,
     updates: Partial<{
       email: string;
       username: string;
@@ -133,105 +161,179 @@ export const userAPI = {
       role: string;
       company_id: number;
       is_active: boolean;
+      full_name: string;
+      phone_number: string;
+      department: string;
+      can_assign_tasks: boolean;
+      canAssignTasks: boolean; // Support both naming conventions
+      isActive: boolean; // Support both naming conventions
     }>
   ): Promise<User> => {
-    const response: AxiosResponse<User> = await api.put(`/api/v1/users/${userId}`, updates);
-    return response.data;
+    try {
+      // Convert camelCase to snake_case for backend compatibility
+      const backendUpdates: any = { ...updates };
+      
+      if ('canAssignTasks' in updates) {
+        backendUpdates.can_assign_tasks = updates.canAssignTasks;
+        delete backendUpdates.canAssignTasks;
+      }
+      
+      if ('isActive' in updates) {
+        backendUpdates.is_active = updates.isActive;
+        delete backendUpdates.isActive;
+      }
+
+      const response: AxiosResponse<User> = await api.put(`/api/v1/users/${userId}`, backendUpdates);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
-  deleteUser: async (userId: number): Promise<{ message: string }> => {
-    const response: AxiosResponse<{ message: string }> = await api.delete(`/api/v1/users/${userId}`);
-    return response.data;
+  deleteUser: async (userId: string | number): Promise<{ message: string }> => {
+    try {
+      const response: AxiosResponse<{ message: string }> = await api.delete(`/api/v1/users/${userId}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
-  activateUser: async (userId: number): Promise<{ message: string }> => {
-    const response: AxiosResponse<{ message: string }> = await api.post(`/api/v1/users/${userId}/activate`);
-    return response.data;
+  activateUser: async (userId: string | number): Promise<{ message: string }> => {
+    try {
+      const response: AxiosResponse<{ message: string }> = await api.post(`/api/v1/users/${userId}/activate`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
   // Profile management
   getProfile: async (): Promise<User> => {
-    const response: AxiosResponse<User> = await api.get('/api/v1/profile');
-    return response.data;
+    try {
+      const response: AxiosResponse<User> = await api.get('/api/v1/profile');
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
   updateProfile: async (updates: Partial<{
     email: string;
     username: string;
     password: string;
+    full_name: string;
+    phone_number: string;
+    department: string;
   }>): Promise<User> => {
-    const response: AxiosResponse<User> = await api.put('/api/v1/profile', updates);
-    return response.data;
+    try {
+      const response: AxiosResponse<User> = await api.put('/api/v1/profile', updates);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 };
 
 // ✅ Company API - Updated for your endpoints
 export const companyAPI = {
   getCompanies: async (): Promise<Company[]> => {
-    const response: AxiosResponse<Company[]> = await api.get('/api/v1/companies');
-    return response.data;
+    try {
+      const response: AxiosResponse<Company[]> = await api.get('/api/v1/companies');
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
   getCompany: async (companyId: number): Promise<Company> => {
-    const response: AxiosResponse<Company> = await api.get(`/api/v1/companies/${companyId}`);
-    return response.data;
+    try {
+      const response: AxiosResponse<Company> = await api.get(`/api/v1/companies/${companyId}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
   createCompany: async (data: {
     name: string;
     description?: string;
   }): Promise<Company> => {
-    // Your backend expects query parameters for company creation
-    const params = new URLSearchParams();
-    params.append('name', data.name);
-    if (data.description) params.append('description', data.description);
+    try {
+      const params = new URLSearchParams();
+      params.append('name', data.name);
+      if (data.description) params.append('description', data.description);
 
-    const response: AxiosResponse<Company> = await api.post(`/api/v1/companies?${params.toString()}`);
-    return response.data;
+      const response: AxiosResponse<Company> = await api.post(`/api/v1/companies?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
   updateCompany: async (
     companyId: number,
     updates: Partial<{ name: string; description: string; is_active: boolean }>
   ): Promise<Company> => {
-    const response: AxiosResponse<Company> = await api.put(`/api/v1/companies/${companyId}`, updates);
-    return response.data;
+    try {
+      const response: AxiosResponse<Company> = await api.put(`/api/v1/companies/${companyId}`, updates);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
   deleteCompany: async (companyId: number): Promise<void> => {
-    await api.delete(`/api/v1/companies/${companyId}`);
+    try {
+      await api.delete(`/api/v1/companies/${companyId}`);
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 };
 
-// ✅ Task API - Updated for your backend structure
+// ✅ Task API - Enhanced for better error handling
 export const taskAPI = {
   getTasks: async (): Promise<Task[]> => {
-    const response: AxiosResponse<Task[]> = await api.get('/api/v1/tasks');
-    return response.data;
+    try {
+      const response: AxiosResponse<Task[]> = await api.get('/api/v1/tasks');
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
-  getTask: async (taskId: number): Promise<Task> => {
-    const response: AxiosResponse<Task> = await api.get(`/api/v1/tasks/${taskId}`);
-    return response.data;
+  getTask: async (taskId: string | number): Promise<Task> => {
+    try {
+      const response: AxiosResponse<Task> = await api.get(`/api/v1/tasks/${taskId}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
   createTask: async (taskData: {
     title: string;
     description?: string;
-    assigned_to_id: number; // Match your backend field name
+    assigned_to_id: number;
+    due_date?: string;
   }): Promise<Task> => {
-    // Your backend expects query parameters for task creation
-    const params = new URLSearchParams();
-    params.append('title', taskData.title);
-    if (taskData.description) params.append('description', taskData.description);
-    params.append('assigned_to_id', taskData.assigned_to_id.toString());
+    try {
+      const params = new URLSearchParams();
+      params.append('title', taskData.title);
+      if (taskData.description) params.append('description', taskData.description);
+      params.append('assigned_to_id', taskData.assigned_to_id.toString());
+      if (taskData.due_date) params.append('due_date', taskData.due_date);
 
-    const response: AxiosResponse<Task> = await api.post(`/api/v1/tasks?${params.toString()}`);
-    return response.data;
+      const response: AxiosResponse<Task> = await api.post(`/api/v1/tasks?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
   updateTask: async (
-    taskId: number,
+    taskId: string | number,
     updates: Partial<{
       title: string;
       description: string;
@@ -240,31 +342,41 @@ export const taskAPI = {
       due_date: string;
     }>
   ): Promise<Task> => {
-    const response: AxiosResponse<Task> = await api.put(`/api/v1/tasks/${taskId}`, updates);
-    return response.data;
+    try {
+      const response: AxiosResponse<Task> = await api.put(`/api/v1/tasks/${taskId}`, updates);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
-  updateTaskStatus: async (taskId: number, status: string): Promise<Task> => {
-    const response = await api.put(`/api/v1/tasks/${taskId}`, { status });
-    return response.data;
+  updateTaskStatus: async (taskId: string | number, status: string): Promise<Task> => {
+    try {
+      const response = await api.put(`/api/v1/tasks/${taskId}`, { status });
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
-  deleteTask: async (taskId: number): Promise<void> => {
-    await api.delete(`/api/v1/tasks/${taskId}`);
+  deleteTask: async (taskId: string | number): Promise<void> => {
+    try {
+      await api.delete(`/api/v1/tasks/${taskId}`);
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 
-  // Note: Your backend doesn't have search endpoint, remove or implement later
   searchTasks: async (query: string, status?: string): Promise<Task[]> => {
     // This endpoint doesn't exist in your backend yet
-    console.warn('Task search not implemented in backend');
+    console.warn('Task search not implemented in backend yet');
     return [];
   },
 };
 
-// ✅ Dashboard API - These endpoints don't exist in your backend yet
+// ✅ Dashboard API - Placeholder for future implementation
 export const dashboardAPI = {
   getSuperAdminDashboard: async (): Promise<DashboardData> => {
-    // You'll need to implement these endpoints in your backend
     console.warn('Dashboard endpoints not implemented in backend yet');
     return {} as DashboardData;
   },
@@ -283,22 +395,39 @@ export const dashboardAPI = {
 // ✅ Health Check
 export const healthAPI = {
   checkHealth: async (): Promise<{ status: string }> => {
-    const response = await api.get('/health'); // Your backend has this endpoint
-    return response.data;
+    try {
+      const response = await api.get('/health');
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error as AxiosError));
+    }
   },
 };
 
-// ✅ Error Utility
+// ✅ Enhanced Error Utility
 export const handleApiError = (error: AxiosError): string => {
   const response = error.response;
+  
   if (response?.data) {
     const data = response.data as ApiError;
-    return data.detail || 'Request failed';
+    if (data.detail) {
+      // Handle validation errors
+      if (typeof data.detail === 'string') {
+        return data.detail;
+      }
+      // Handle array of validation errors
+      if (Array.isArray(data.detail)) {
+        return data.detail.map((err: any) => err.msg || err.message || err).join(', ');
+      }
+    }
+    return 'Request failed';
   }
+  
   if (error.request) {
     return 'Server did not respond. Check your connection.';
   }
-  return 'Something went wrong.';
+  
+  return error.message || 'Something went wrong.';
 };
 
 export default api;
