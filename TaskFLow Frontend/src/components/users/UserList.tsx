@@ -194,7 +194,7 @@ export const UserList: React.FC = () => {
         <div className="flex items-center space-x-3">
           {/* Refresh Button */}
           <Button
-            variant="outline"
+            variant="secondary"
             icon={RefreshCw}
             onClick={handleManualRefresh}
             disabled={refreshing}
