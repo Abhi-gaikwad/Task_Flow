@@ -77,19 +77,20 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const [users, setUsers] = useState<User[]>([]);
 
-const loadUsers = async () => {
-  try {
-    const users = await userAPI.getUsers();
-    setUsers(users);
-  } catch (error) {
-    console.error('Failed to load users:', error);
-  }
-};
+  const loadUsers = async () => {
+    try {
+      const users = await userAPI.getUsers();
+      setUsers(users);
+    } catch (error) {
+      console.error('Failed to load users:', error);
+    }
+  };
 
-// Call this when the app initializes
-useEffect(() => {
-  loadUsers();
-}, []);
+  // Call this when the app initializes
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
   useEffect(() => {
     const fetchUsers = async () => {
       try {

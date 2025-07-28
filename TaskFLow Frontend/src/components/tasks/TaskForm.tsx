@@ -23,22 +23,37 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
     tags: '',
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.title || !formData.assignedTo || !formData.dueDate) return;
+ // Replace the handleSubmit function
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!formData.title || !formData.assignedTo || !formData.dueDate) return;
 
-    onSubmit({
-      title: formData.title,
-      description: formData.description,
-      priority: formData.priority,
-      status: 'pending',
-      assignedTo: formData.assignedTo,
-      assignedBy: user?.id || '',
-      dueDate: new Date(formData.dueDate),
-      reminderSet: formData.reminderSet ? new Date(formData.reminderSet) : undefined,
-      tags: formData.tags.split(',').map(tag => tag.trim()).filter(Boolean),
+  try {
+    const response = await fetch('/api/v1/tasks', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+      },
+      body: JSON.stringify({
+        title: formData.title,
+        description: formData.description,
+        assigned_to_id: parseInt(formData.assignedTo),
+        due_date: formData.dueDate || null
+      })
     });
-  };
+
+    if (response.ok) {
+      onSubmit(); // Close form and refresh list
+    } else {
+      const error = await response.json();
+      alert(`Error: ${error.detail}`);
+    }
+  } catch (error) {
+    alert('Error creating task');
+  }
+};
+
 
   const availableUsers = users.filter(u => u.id !== user?.id);
 

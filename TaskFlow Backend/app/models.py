@@ -92,6 +92,8 @@ class Task(Base):
     company_id     = Column(Integer, ForeignKey("companies.id"))
     created_at     = Column(DateTime, default=datetime.utcnow, nullable=False)
     due_date       = Column(DateTime)
+    completed_at = Column(DateTime, nullable=True)
+
 
     # relationships
     company = relationship("Company", back_populates="tasks")
