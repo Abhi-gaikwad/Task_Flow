@@ -26,16 +26,29 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
 
   const statusColors = {
     pending: 'bg-gray-100 text-gray-800 border-gray-200',
-    'in-progress': 'bg-blue-100 text-blue-800 border-blue-200',
+    in_progress: 'bg-blue-100 text-blue-800 border-blue-200',
     completed: 'bg-green-100 text-green-800 border-green-200',
   };
 
-  const handleStatusChange = (newStatus: Task['status']) => {
-    updateTask(task.id, { 
-      status: newStatus,
-      completedAt: newStatus === 'completed' ? new Date() : undefined
-    });
+  const handleStatusChange = async (newStatus: Task['status']) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/v1/tasks/${task.id}/status?status=${newStatus}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+      });
+
+      if (response.ok) {
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to update task status:', response.status, errorText);
+      }
+    } catch (error) {
+      console.error('Error updating task status:', error);
+    }
   };
+
 
   const canEdit = user?.role === 'admin' || user?.id === task.assignedBy;
   const canDelete = user?.role === 'admin';
@@ -100,14 +113,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
             <div className="flex space-x-2">
               {task.status === 'pending' && (
                 <button
-                  onClick={() => handleStatusChange('in-progress')}
+                  onClick={() => handleStatusChange('in_progress')}
                   className="flex items-center px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs"
                 >
                   <Clock className="w-3 h-3 mr-1" />
                   Start
                 </button>
               )}
-              {task.status === 'in-progress' && (
+              {task.status === 'in_progress' && (
                 <button
                   onClick={() => handleStatusChange('completed')}
                   className="flex items-center px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-xs"
@@ -118,6 +131,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
               )}
             </div>
           )}
+
         </div>
 
         <div className="text-xs text-gray-500">

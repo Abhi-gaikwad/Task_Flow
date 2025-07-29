@@ -10,6 +10,7 @@ interface AppContextType {
   notifications: Notification[];
   selectedClient: Client | null;
   setSelectedClient: (client: Client | null) => void;
+  updateTasks: (tasks: Task[]) => void;
   addTask: (task: Omit<Task, 'id' | 'createdAt'>) => void;
   updateTask: (id: string, updates: Partial<Task>) => void;
   deleteTask: (id: string) => void;
@@ -149,6 +150,10 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
 
+  const updateTasks = (newTasks: Task[]) => {
+    setTasks(newTasks);
+  };
+
   const addTask = (task: Omit<Task, 'id' | 'createdAt'>) => {
     const newTask: Task = {
       ...task,
@@ -210,6 +215,7 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
       notifications,
       selectedClient,
       setSelectedClient,
+      updateTasks,
       addTask,
       updateTask,
       deleteTask,

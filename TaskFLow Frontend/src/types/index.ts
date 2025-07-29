@@ -17,7 +17,7 @@ export interface Task {
   title: string;
   description: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: 'pending' | 'in-progress' | 'completed';
+  status: 'pending' | 'in_progress' | 'completed';
   assignedTo: string;
   assignedBy: string;
   createdAt: Date;

@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle, XCircle, AlertCircle, Info, X } from 'lucide-react';
+import { CheckCircle, XCircle, AlertCircle, X } from 'lucide-react';
 
 interface ToastProps {
-  type: 'success' | 'error' | 'warning' | 'info';
   message: string;
+  type: 'success' | 'error' | 'warning' | 'info';
   onClose: () => void;
   duration?: number;
 }
 
 export const Toast: React.FC<ToastProps> = ({ 
-  type, 
   message, 
+  type, 
   onClose, 
   duration = 5000 
 }) => {
@@ -19,53 +19,60 @@ export const Toast: React.FC<ToastProps> = ({
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsVisible(false);
-      setTimeout(onClose, 300);
+      setTimeout(onClose, 300); // Wait for fade out animation
     }, duration);
 
     return () => clearTimeout(timer);
   }, [duration, onClose]);
 
-  const icons = {
-    success: CheckCircle,
-    error: XCircle,
-    warning: AlertCircle,
-    info: Info,
+  const getIcon = () => {
+    switch (type) {
+      case 'success':
+        return <CheckCircle className="w-5 h-5 text-green-600" />;
+      case 'error':
+        return <XCircle className="w-5 h-5 text-red-600" />;
+      case 'warning':
+        return <AlertCircle className="w-5 h-5 text-yellow-600" />;
+      case 'info':
+        return <AlertCircle className="w-5 h-5 text-blue-600" />;
+    }
   };
 
-  const colors = {
-    success: 'bg-green-50 border-green-200 text-green-800',
-    error: 'bg-red-50 border-red-200 text-red-800',
-    warning: 'bg-yellow-50 border-yellow-200 text-yellow-800',
-    info: 'bg-blue-50 border-blue-200 text-blue-800',
+  const getBgColor = () => {
+    switch (type) {
+      case 'success':
+        return 'bg-green-50 border-green-200';
+      case 'error':
+        return 'bg-red-50 border-red-200';
+      case 'warning':
+        return 'bg-yellow-50 border-yellow-200';
+      case 'info':
+        return 'bg-blue-50 border-blue-200';
+    }
   };
-
-  const iconColors = {
-    success: 'text-green-400',
-    error: 'text-red-400',
-    warning: 'text-yellow-400',
-    info: 'text-blue-400',
-  };
-
-  const Icon = icons[type];
 
   return (
-    <div className={`fixed top-4 right-4 z-50 transition-all duration-300 ${
-      isVisible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'
-    }`}>
-      <div className={`rounded-lg border p-4 shadow-lg backdrop-blur-sm ${colors[type]}`}>
-        <div className="flex items-center">
-          <Icon className={`w-5 h-5 mr-3 ${iconColors[type]}`} />
-          <p className="text-sm font-medium flex-1">{message}</p>
-          <button
-            onClick={() => {
-              setIsVisible(false);
-              setTimeout(onClose, 300);
-            }}
-            className="ml-3 text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+    <div
+      className={`fixed top-4 right-4 z-50 transform transition-all duration-300 ${
+        isVisible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'
+      }`}
+    >
+      <div className={`flex items-center p-4 rounded-lg border-2 shadow-lg ${getBgColor()}`}>
+        <div className="flex-shrink-0 mr-3">
+          {getIcon()}
         </div>
+        <div className="flex-1">
+          <p className="text-sm font-medium text-gray-900">{message}</p>
+        </div>
+        <button
+          onClick={() => {
+            setIsVisible(false);
+            setTimeout(onClose, 300);
+          }}
+          className="flex-shrink-0 ml-3 text-gray-400 hover:text-gray-600"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
     </div>
   );

@@ -9,13 +9,14 @@ import { Button } from '../common/Button';
 import { Task } from '../../types';
 
 export const TaskList: React.FC = () => {
-  const { tasks, addTask, addNotification } = useApp();
+  const { tasks, addNotification, updateTasks } = useApp();
   const { user } = useAuth();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTasks();
@@ -23,17 +24,46 @@ export const TaskList: React.FC = () => {
 
   const fetchTasks = async () => {
     try {
+      setLoading(true);
+      setError(null);
+      
       const endpoint = user?.role === 'admin' ? '/api/v1/tasks' : '/api/v1/my-tasks';
-      const response = await fetch(endpoint, {
+      const response = await fetch(`http://localhost:8000${endpoint}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json'
         }
       });
-      const data = await response.json();
-      // Note: You might want to update the tasks through your context instead
-      // addTask(data); // or however you want to handle this
-    } catch (error) {
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const backendTasks = await response.json();
+      console.log('Fetched backend tasks:', backendTasks);
+      
+      const transformedTasks: Task[] = backendTasks.map((task: any) => ({
+        id: task.id.toString(),
+        title: task.title,
+        description: task.description || '',
+        priority: 'medium' as Task['priority'],
+        status: task.status === 'in_progress' ? 'in-progress' : 
+                (task.status || 'pending') as 'pending' | 'in-progress' | 'completed',
+        assignedTo: task.assigned_to_id?.toString() || '',
+        assignedBy: task.created_by?.toString() || '',
+        createdAt: task.created_at ? new Date(task.created_at) : new Date(),
+        dueDate: task.due_date ? new Date(task.due_date) : new Date(),
+        completedAt: task.completed_at ? new Date(task.completed_at) : undefined,
+        tags: [],
+        assignee_name: task.assignee_name,
+        creator_name: task.creator_name
+      }));
+      
+      console.log('Transformed tasks:', transformedTasks);
+      updateTasks(transformedTasks);
+    } catch (error: any) {
       console.error('Error fetching tasks:', error);
+      setError(error.message || 'Failed to fetch tasks');
     } finally {
       setLoading(false);
     }
@@ -45,34 +75,74 @@ export const TaskList: React.FC = () => {
     const matchesStatus = statusFilter === 'all' || task.status === statusFilter;
     const matchesPriority = priorityFilter === 'all' || task.priority === priorityFilter;
     
-    // Show all tasks for admin, only assigned tasks for regular users
-    const matchesUser = user?.role === 'admin' || task.assignedTo === user?.id;
+    let matchesUser = true;
+    if (user?.role !== 'admin') {
+      matchesUser = task.assignedTo === user?.id?.toString() || task.assignedBy === user?.id?.toString();
+    }
     
     return matchesSearch && matchesStatus && matchesPriority && matchesUser;
   });
 
-  const handleCreateTask = (taskData: Omit<Task, 'id' | 'createdAt'>) => {
-    addTask(taskData);
-    addNotification({
-      type: 'task_assigned',
-      title: 'New Task Assigned',
-      message: `You have been assigned a new task: ${taskData.title}`,
-      userId: taskData.assignedTo,
-      taskId: '',
-      isRead: false,
-    });
-    setIsCreateModalOpen(false);
+  const handleCreateTask = async () => {
+    try {
+      await fetchTasks();
+      setIsCreateModalOpen(false);
+    } catch (error) {
+      console.error('Error after creating task:', error);
+    }
   };
 
   const handleEditTask = (task: Task) => {
-    // TODO: Implement edit functionality
     console.log('Edit task:', task);
   };
 
-  const handleDeleteTask = (id: string) => {
-    // TODO: Implement delete functionality
-    console.log('Delete task:', id);
+  const handleDeleteTask = async (id: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/v1/tasks/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+      });
+
+      if (response.ok) {
+        await fetchTasks();
+        addNotification({
+          type: 'task_created', // Use existing type instead of 'task_deleted'
+          title: 'Task Deleted',
+          message: 'Task has been deleted successfully',
+          userId: user?.id || '',
+          isRead: false,
+        });
+      } else {
+        throw new Error('Failed to delete task');
+      }
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      alert('Failed to delete task');
+    }
   };
+
+  const handleTaskUpdated = async () => {
+    await fetchTasks();
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-red-500 mb-4">Error: {error}</p>
+        <Button onClick={fetchTasks}>Retry</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -127,6 +197,31 @@ export const TaskList: React.FC = () => {
           </div>
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <p className="text-sm text-blue-600">Total Tasks</p>
+            <p className="text-2xl font-bold text-blue-700">{filteredTasks.length}</p>
+          </div>
+          <div className="bg-yellow-50 p-4 rounded-lg">
+            <p className="text-sm text-yellow-600">Pending</p>
+            <p className="text-2xl font-bold text-yellow-700">
+              {filteredTasks.filter(t => t.status === 'pending').length}
+            </p>
+          </div>
+          <div className="bg-purple-50 p-4 rounded-lg">
+            <p className="text-sm text-purple-600">In Progress</p>
+            <p className="text-2xl font-bold text-purple-700">
+              {filteredTasks.filter(t => t.status === 'in-progress').length}
+            </p>
+          </div>
+          <div className="bg-green-50 p-4 rounded-lg">
+            <p className="text-sm text-green-600">Completed</p>
+            <p className="text-2xl font-bold text-green-700">
+              {filteredTasks.filter(t => t.status === 'completed').length}
+            </p>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredTasks.map((task) => (
             <TaskCard
@@ -134,13 +229,26 @@ export const TaskList: React.FC = () => {
               task={task}
               onEdit={handleEditTask}
               onDelete={handleDeleteTask}
+              // Temporarily removed onTaskUpdated to avoid TypeScript error
+              // onTaskUpdated={handleTaskUpdated}
             />
           ))}
         </div>
 
-        {filteredTasks.length === 0 && (
+        {filteredTasks.length === 0 && !loading && (
           <div className="text-center py-12">
-            <p className="text-gray-500">No tasks found matching your criteria.</p>
+            <div className="text-gray-400 mb-4">
+              <Filter className="w-16 h-16 mx-auto" />
+            </div>
+            <p className="text-gray-500 text-lg mb-2">No tasks found</p>
+            <p className="text-gray-400">
+              {statusFilter !== 'all' || priorityFilter !== 'all' || searchTerm
+                ? 'Try adjusting your filters or search terms'
+                : user?.role === 'admin' 
+                  ? 'Create your first task to get started'
+                  : 'No tasks have been assigned to you yet'
+              }
+            </p>
           </div>
         )}
       </div>

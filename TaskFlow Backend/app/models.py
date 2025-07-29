@@ -21,6 +21,20 @@ class TaskStatus(enum.Enum):
     COMPLETED   = "completed"
 
 
+class TaskPriority(enum.Enum):
+    LOW     = "low"
+    MEDIUM  = "medium"
+    HIGH    = "high"
+    URGENT  = "urgent"
+
+
+class NotificationType(enum.Enum):
+    TASK_ASSIGNED = "task_assigned"
+    TASK_STATUS_UPDATED = "task_status_updated"
+    TASK_COMPLETED = "task_completed"
+    TASK_DUE_SOON = "task_due_soon"
+
+
 # ---------- COMPANY ----------------------------------------------
 class Company(Base):
     __tablename__ = "companies"
@@ -76,8 +90,11 @@ class User(Base):
     assigned_tasks = relationship(
         "Task",
         back_populates="creator",
-        foreign_keys="Task.created_by_id"
+        foreign_keys="Task.created_by"
     )
+    
+    # Notifications for this user
+    notifications = relationship("Notification", back_populates="user")
 
 # ---------- TASK --------------------------------------------------
 class Task(Base):
@@ -87,8 +104,9 @@ class Task(Base):
     title          = Column(String, nullable=False)
     description    = Column(String)
     status         = Column(SqlaEnum(TaskStatus), default=TaskStatus.PENDING)
-    assigned_to_id = Column(Integer, ForeignKey("users.id"))
-    created_by_id  = Column(Integer, ForeignKey("users.id"))
+    priority       = Column(SqlaEnum(TaskPriority), default=TaskPriority.MEDIUM)
+    assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_by  = Column(Integer, ForeignKey("users.id"))
     company_id     = Column(Integer, ForeignKey("companies.id"))
     created_at     = Column(DateTime, default=datetime.utcnow, nullable=False)
     due_date       = Column(DateTime)
@@ -108,6 +126,24 @@ class Task(Base):
     # The person who created/assigned the task
     creator = relationship(
         "User",
-        foreign_keys=[created_by_id],
+        foreign_keys=[created_by],
         back_populates="assigned_tasks"
     )
+
+
+# ---------- NOTIFICATION --------------------------------------------------
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id"), nullable=False)
+    type        = Column(SqlaEnum(NotificationType), nullable=False)
+    title       = Column(String, nullable=False)
+    message     = Column(String, nullable=False)
+    task_id     = Column(Integer, ForeignKey("tasks.id"))
+    is_read     = Column(Boolean, default=False, nullable=False)
+    created_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # relationships
+    user = relationship("User", back_populates="notifications")
+    task = relationship("Task")

@@ -1,10 +1,11 @@
+from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from app.database import get_db
-from app.models import User, Company, Task, UserRole, TaskStatus
+from app.models import User, Company, Task, UserRole, TaskStatus, TaskPriority, Notification, NotificationType
 from app.auth import (
     get_password_hash, verify_password,
     create_access_token, get_current_user, super_admin_only
@@ -12,11 +13,13 @@ from app.auth import (
 from datetime import datetime
 
 router = APIRouter()
+
 class TaskCreate(BaseModel):
     title: str
     description: Optional[str] = None
     assigned_to_id: int
     due_date: Optional[datetime] = None
+    priority: TaskPriority = TaskPriority.MEDIUM
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -29,8 +32,9 @@ class TaskResponse(BaseModel):
     title: str
     description: Optional[str]
     status: TaskStatus
+    priority: TaskPriority
     assigned_to_id: int
-    created_by_id: int
+    created_by: int
     company_id: int
     created_at: datetime
     due_date: Optional[datetime]
@@ -41,6 +45,21 @@ class TaskResponse(BaseModel):
     creator_name: Optional[str] = None
     
     model_config = {"from_attributes": True}
+
+
+class NotificationResponse(BaseModel):
+    id: int
+    user_id: int
+    type: NotificationType
+    title: str
+    message: str
+    task_id: Optional[int] = None
+    is_read: bool
+    created_at: datetime
+    
+    model_config = {"from_attributes": True}
+
+
 # ── Pydantic Models for Request/Response ─────────────────────
 class UserCreate(BaseModel):
     email: EmailStr
@@ -318,46 +337,6 @@ def activate_user(
     return {"message": f"User {user.username} has been activated"}
 
 # ── Task Management ──────────────────────────
-@router.post("/tasks")
-def create_task(
-    title: str, 
-    description: Optional[str], 
-    assigned_to_id: int,
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
-):
-    assignee = db.get(User, assigned_to_id)
-    if not assignee:
-        raise HTTPException(status_code=404, detail="Assignee not found")
-    
-    if current_user.role != UserRole.SUPER_ADMIN and assignee.company_id != current_user.company_id:
-        raise HTTPException(status_code=403, detail="Cross-company assignment forbidden")
-
-    # Fix field names to match your model
-    task = Task(
-        title=title, 
-        description=description,
-        assigned_to_id=assigned_to_id,  # ← Match your model
-        created_by_id=current_user.id,  # ← Match your model
-        company_id=assignee.company_id
-    )
-    db.add(task)
-    db.commit()
-    db.refresh(task)
-    return task
-
-@router.get("/tasks")
-def list_tasks(
-    current_user: User = Depends(get_current_user), 
-    db: Session = Depends(get_db)
-):
-    query = db.query(Task)
-    if current_user.role == UserRole.SUPER_ADMIN:
-        return query.all()
-    elif current_user.role == UserRole.ADMIN:
-        return query.filter(Task.company_id == current_user.company_id).all()
-    else:
-        return query.filter(Task.assigned_to_id == current_user.id).all()  # ← Match your model
 
 # ── Profile Management ──────────────────────────
 @router.get("/profile", response_model=UserResponse)
@@ -410,9 +389,10 @@ def allocate_task(
         title=task_data.title,
         description=task_data.description,
         assigned_to_id=task_data.assigned_to_id,
-        created_by_id=current_user.id,
+        created_by=current_user.id,
         company_id=assignee.company_id,
         due_date=task_data.due_date,
+        priority=task_data.priority,
         status=TaskStatus.PENDING
     )
     
@@ -424,6 +404,16 @@ def allocate_task(
     task_response = TaskResponse.model_validate(task)
     task_response.assignee_name = assignee.username
     task_response.creator_name = current_user.username
+    
+    # Create notification for the assigned user
+    create_notification(
+        db=db,
+        user_id=assignee.id,
+        notification_type=NotificationType.TASK_ASSIGNED,
+        title="New Task Assigned",
+        message=f"You have been assigned a new task: {task.title}",
+        task_id=task.id
+    )
     
     return task_response
 
@@ -447,14 +437,87 @@ def get_my_allocated_tasks(
     task_responses = []
     for task in tasks:
         task_response = TaskResponse.model_validate(task)
-        creator = db.get(User, task.created_by_id)
+        creator = db.get(User, task.created_by)
         task_response.creator_name = creator.username if creator else "Unknown"
         task_response.assignee_name = current_user.username
         task_responses.append(task_response)
     
     return task_responses
 
-# Update task status (users can only update tasks assigned to them)
+
+# ── Notification Management ──────────────────────────
+@router.get("/notifications", response_model=List[NotificationResponse])
+def get_notifications(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get notifications for current user"""
+    notifications = db.query(Notification).filter(
+        Notification.user_id == current_user.id
+    ).order_by(Notification.created_at.desc()).all()
+    
+    return notifications
+
+
+@router.put("/notifications/{notification_id}/read")
+def mark_notification_read(
+    notification_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Mark notification as read"""
+    notification = db.get(Notification, notification_id)
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    if notification.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    notification.is_read = True
+    db.commit()
+    
+    return {"message": "Notification marked as read"}
+
+
+@router.delete("/notifications/{notification_id}")
+def delete_notification(
+    notification_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete notification"""
+    notification = db.get(Notification, notification_id)
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    if notification.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    db.delete(notification)
+    db.commit()
+    
+    return {"message": "Notification deleted"}
+
+
+def create_notification(
+    db: Session,
+    user_id: int,
+    notification_type: NotificationType,
+    title: str,
+    message: str,
+    task_id: Optional[int] = None
+):
+    """Helper function to create notifications"""
+    notification = Notification(
+        user_id=user_id,
+        type=notification_type,
+        title=title,
+        message=message,
+        task_id=task_id
+    )
+    db.add(notification)
+    db.commit()
+    return notification# Update task status (users can only update tasks assigned to them)
 @router.put("/tasks/{task_id}/status", response_model=TaskResponse)
 def update_task_status(
     task_id: int,
@@ -476,6 +539,9 @@ def update_task_status(
             raise HTTPException(status_code=403, detail="Access denied")
     # Super admins can update any task (already handled by role check)
     
+    # Store old status for notification
+    old_status = task.status
+    
     task.status = status
     if status == TaskStatus.COMPLETED:
         task.completed_at = datetime.utcnow()
@@ -483,10 +549,27 @@ def update_task_status(
     db.commit()
     db.refresh(task)
     
+    # Notify task creator/admin about status change
+    if old_status != status:
+        # Get the task creator
+        creator = db.get(User, task.created_by)
+        if creator and creator.id != current_user.id:
+            # Create notification for task creator
+            notification_title = "Task Status Updated"
+            notification_message = f"Task '{task.title}' status updated to {status.value} by {current_user.username}"
+            create_notification(
+                db=db,
+                user_id=creator.id,
+                notification_type=NotificationType.TASK_STATUS_UPDATED,
+                title=notification_title,
+                message=notification_message,
+                task_id=task.id
+            )
+    
     # Add user names for response
     task_response = TaskResponse.model_validate(task)
     assignee = db.get(User, task.assigned_to_id)
-    creator = db.get(User, task.created_by_id)
+    creator = db.get(User, task.created_by)
     task_response.assignee_name = assignee.username if assignee else "Unknown"
     task_response.creator_name = creator.username if creator else "Unknown"
     
@@ -510,7 +593,7 @@ def update_task(
         can_update = True
     elif current_user.role == UserRole.ADMIN and task.company_id == current_user.company_id:
         can_update = True
-    elif task.created_by_id == current_user.id:  # Task creator
+    elif task.created_by == current_user.id:  # Task creator
         can_update = True
     
     if not can_update:
@@ -531,7 +614,7 @@ def update_task(
     # Add user names for response
     task_response = TaskResponse.model_validate(task)
     assignee = db.get(User, task.assigned_to_id)
-    creator = db.get(User, task.created_by_id)
+    creator = db.get(User, task.created_by)
     task_response.assignee_name = assignee.username if assignee else "Unknown"
     task_response.creator_name = creator.username if creator else "Unknown"
     
@@ -542,7 +625,7 @@ def update_task(
 def list_all_tasks(
     status: Optional[TaskStatus] = Query(None),
     assigned_to_id: Optional[int] = Query(None),
-    created_by_id: Optional[int] = Query(None),
+    created_by: Optional[int] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
@@ -559,16 +642,16 @@ def list_all_tasks(
         # Regular users can only see tasks assigned to them or created by them
         query = query.filter(
             (Task.assigned_to_id == current_user.id) | 
-            (Task.created_by_id == current_user.id)
+            (Task.created_by == current_user.id)
         )
     
     # Apply filters
     if status:
         query = query.filter(Task.status == status)
     if assigned_to_id:
-        query = query.filter(Task.assigned_to_id == assigned_to_id)
-    if created_by_id:
-        query = query.filter(Task.created_by_id == created_by_id)
+        query = query.filter(Task.assigned_to == assigned_to_id)
+    if created_by:
+        query = query.filter(Task.created_by == created_by)
     
     tasks = query.offset(skip).limit(limit).all()
     
@@ -577,9 +660,13 @@ def list_all_tasks(
     for task in tasks:
         task_response = TaskResponse.model_validate(task)
         assignee = db.get(User, task.assigned_to_id)
-        creator = db.get(User, task.created_by_id)
+        creator = db.get(User, task.created_by)
         task_response.assignee_name = assignee.username if assignee else "Unknown"
         task_response.creator_name = creator.username if creator else "Unknown"
         task_responses.append(task_response)
     
     return task_responses
+
+
+
+

@@ -7,7 +7,7 @@ app = FastAPI(title="TaskFlow RBAC API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["*"],  # Allow all origins for development
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,
