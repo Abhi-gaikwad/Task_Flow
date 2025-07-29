@@ -30,24 +30,26 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
     completed: 'bg-green-100 text-green-800 border-green-200',
   };
 
-  const handleStatusChange = async (newStatus: Task['status']) => {
-    try {
-      const response = await fetch(`http://localhost:8000/api/v1/tasks/${task.id}/status?status=${newStatus}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        }
-      });
-
-      if (response.ok) {
-      } else {
-        const errorText = await response.text();
-        console.error('Failed to update task status:', response.status, errorText);
+ const handleStatusChange = async (newStatus: Task['status']) => {
+  try {
+    const response = await fetch(`http://localhost:8000/api/v1/tasks/${task.id}/status?status=${newStatus}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('access_token')}`
       }
-    } catch (error) {
-      console.error('Error updating task status:', error);
+    });
+
+    if (response.ok) {
+      // Update local state via context to reflect status change instantly
+      updateTask(task.id, { ...task, status: newStatus });
+    } else {
+      const errorText = await response.text();
+      console.error('Failed to update task status:', response.status, errorText);
     }
-  };
+  } catch (error) {
+    console.error('Error updating task status:', error);
+  }
+};
 
 
   const canEdit = user?.role === 'admin' || user?.id === task.assignedBy;
