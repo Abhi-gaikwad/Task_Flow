@@ -1,1 +1,15 @@
 E:\Engineering\Placement\Internship\TaskFlow Entire\TaskFlow Backend\.env
+
+# Ignore virtual environment
+venv/
+TaskFlow Backend/venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment & config
+.env
+*.env
+
+

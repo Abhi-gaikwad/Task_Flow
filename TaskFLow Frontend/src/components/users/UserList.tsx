@@ -1,3 +1,4 @@
+// UserList.tsx
 import React, { useState, useEffect } from 'react';
 import { Search, UserPlus, Shield, User, Edit, Trash2, UserCheck, UserX, RefreshCw } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
@@ -16,60 +17,60 @@ export const UserList: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState<string>('all');
+  // Initialize roleFilter based on user role
+  const [roleFilter, setRoleFilter] = useState<string>(user?.role === 'super_admin' ? 'admin' : 'all');
   const [error, setError] = useState<string | null>(null);
-  const [allUsers, setAllUsers] = useState<UserType[]>(users);
+  const [allUsers, setAllUsers] = useState<UserType[]>([]); // Initialize as empty, data fetched in useEffect
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false); // Add refreshing state
+  const [refreshing, setRefreshing] = useState(false);
 
   // Check if current user is admin or super_admin
   const isAdminOrSuperAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const isSuperAdmin = user?.role === 'super_admin';
 
-  // Fetch users on component mount
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        setLoading(true);
-        const latestUsers = await userAPI.getUsers();
-        setAllUsers(latestUsers.map(transformBackendUser));
-        setError(null);
-      } catch (err: any) {
-        setError(err.message || 'Failed to load users.');
-        console.error('Error fetching users:', err);
-      } finally {
-        setLoading(false);
+  // Function to fetch users with appropriate filters
+  const fetchAndSetUsers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      let latestUsers;
+      if (isSuperAdmin) {
+        // Super admin always fetches only admin users from backend
+        latestUsers = await userAPI.getUsers({ role: 'admin' });
+      } else {
+        // Other roles can fetch all or apply their own filters
+        latestUsers = await userAPI.getUsers();
       }
-    };
-
-    fetchUsers();
-  }, []);
-
-  // Update local state when context users change
-  useEffect(() => {
-    if (users && users.length > 0) {
-      setAllUsers(users.map(transformBackendUser));
+      setAllUsers(latestUsers.map(transformBackendUser));
+    } catch (err: any) {
+      setError(err.message || 'Failed to load users.');
+      console.error('Error fetching users:', err);
+    } finally {
+      setLoading(false);
     }
-  }, [users]);
+  };
+
+  // Fetch users on component mount or when user role changes
+  useEffect(() => {
+    fetchAndSetUsers();
+    // Reset role filter when user changes, important for super_admin
+    setRoleFilter(user?.role === 'super_admin' ? 'admin' : 'all');
+  }, [user]);
+
 
   const filteredUsers = allUsers.filter(u => {
     const matchesSearch = u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          u.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRole = roleFilter === 'all' || u.role === roleFilter;
+    // If super admin, roleFilter is effectively 'admin' and not changeable
+    // If not super admin, roleFilter works as selected in dropdown
+    const matchesRole = isSuperAdmin ? u.role === 'admin' : (roleFilter === 'all' || u.role === roleFilter);
     return matchesSearch && matchesRole;
   });
 
   const refreshUsers = async () => {
-    try {
-      setRefreshing(true); // Set refreshing state
-      const latestUsers = await userAPI.getUsers();
-      setAllUsers(latestUsers.map(transformBackendUser));
-      setError(null);
-    } catch (err: any) {
-      setError(err.message || 'Failed to refresh user list.');
-    } finally {
-      setRefreshing(false); // Clear refreshing state
-    }
+    setRefreshing(true);
+    await fetchAndSetUsers(); // Use the unified fetch function
+    setRefreshing(false);
   };
 
   // Manual refresh handler
@@ -176,7 +177,7 @@ export const UserList: React.FC = () => {
       {error && (
         <div className="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded-lg flex items-center justify-between">
           <span>{error}</span>
-          <button 
+          <button
             onClick={() => setError(null)}
             className="text-red-500 hover:text-red-700 font-bold text-lg leading-none"
           >
@@ -188,8 +189,12 @@ export const UserList: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-          <p className="text-gray-600">Manage team members and permissions</p>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {isSuperAdmin ? "Company Admins" : "Users"}
+          </h1>
+          <p className="text-gray-600">
+            {isSuperAdmin ? "Manage administrative users for companies" : "Manage team members and permissions"}
+          </p>
         </div>
         <div className="flex items-center space-x-3">
           {/* Refresh Button */}
@@ -202,10 +207,10 @@ export const UserList: React.FC = () => {
           >
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </Button>
-          
+
           {/* Add User Button */}
           <Button icon={UserPlus} onClick={() => setIsCreateModalOpen(true)}>
-            Add User
+            {isSuperAdmin ? "Add Company Admin" : "Add User"}
           </Button>
         </div>
       </div>
@@ -219,7 +224,7 @@ export const UserList: React.FC = () => {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search users..."
+                placeholder={isSuperAdmin ? "Search company admins..." : "Search users..."}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -229,11 +234,20 @@ export const UserList: React.FC = () => {
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isSuperAdmin} // Disable if super admin, as it's fixed to 'admin'
             >
-              <option value="all">All Roles</option>
-              <option value="super_admin">Super Admin</option>
-              <option value="admin">Admin</option>
-              <option value="user">User</option>
+              {isSuperAdmin ? (
+                <>
+                  <option value="admin">Admin</option>
+                </>
+              ) : (
+                <>
+                  <option value="all">All Roles</option>
+                  <option value="super_admin">Super Admin</option>
+                  <option value="admin">Admin</option>
+                  <option value="user">User</option>
+                </>
+              )}
             </select>
           </div>
         </div>
@@ -277,10 +291,10 @@ export const UserList: React.FC = () => {
                         <User className="w-4 h-4 text-gray-400" />
                       )}
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        u.role === 'super_admin' 
-                          ? 'bg-red-100 text-red-800' 
-                          : u.role === 'admin' 
-                          ? 'bg-purple-100 text-purple-800' 
+                        u.role === 'super_admin'
+                          ? 'bg-red-100 text-red-800'
+                          : u.role === 'admin'
+                          ? 'bg-purple-100 text-purple-800'
                           : 'bg-gray-100 text-gray-800'
                       }`}>
                         {u.role.replace('_', ' ')}
@@ -330,8 +344,8 @@ export const UserList: React.FC = () => {
                         onClick={() => toggleUserActive(u.id, !u.isActive)}
                         disabled={!canModifyUser(u) || u.id === user?.id}
                         className={`p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                          u.isActive 
-                            ? 'text-red-600 hover:text-red-800 hover:bg-red-50' 
+                          u.isActive
+                            ? 'text-red-600 hover:text-red-800 hover:bg-red-50'
                             : 'text-green-600 hover:text-green-800 hover:bg-green-50'
                         }`}
                         title={u.isActive ? 'Deactivate User' : 'Activate User'}
@@ -362,7 +376,9 @@ export const UserList: React.FC = () => {
             <div className="text-gray-400 mb-4">
               <User className="w-12 h-12 mx-auto" />
             </div>
-            <p className="text-gray-500 text-lg">No users found matching your criteria.</p>
+            <p className="text-gray-500 text-lg">
+              {isSuperAdmin ? "No company admin users found matching your criteria." : "No users found matching your criteria."}
+            </p>
             <p className="text-gray-400 text-sm mt-2">Try adjusting your search or filter settings.</p>
           </div>
         )}
@@ -372,7 +388,7 @@ export const UserList: React.FC = () => {
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        title="Add New User"
+        title={isSuperAdmin ? "Add New Company Admin" : "Add New User"} // Removed the {/* */} comment
         maxWidth="lg"
       >
         <UserForm
@@ -393,7 +409,7 @@ export const UserList: React.FC = () => {
       >
         {selectedUser && (
           <UserForm
-            user={selectedUser}
+            currentUser={selectedUser}
             onSuccess={handleUserUpdated}
             onClose={() => {
               setIsEditModalOpen(false);

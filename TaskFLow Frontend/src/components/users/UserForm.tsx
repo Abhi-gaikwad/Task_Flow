@@ -5,26 +5,31 @@ import { Mail, User, Shield, KeyRound } from "lucide-react";
 import { Button } from "../common/Button";
 import { userAPI, companyAPI } from "../../services/api";
 import { User as UserType, Company } from "../../types";
+import { useAuth } from "../../contexts/AuthContext"; // Import useAuth
 
 interface UserFormProps {
-  currentUser?: UserType;        // if provided, form can be prefilled for edit; for now, only create is handled
-  onSuccess?: () => void;        // callback for parent to update user list etc
-  onClose: () => void;           // callback for closing the modal/dialog
+  currentUser?: UserType; // if provided, form can be prefilled for edit; for now, only create is handled
+  onSuccess?: () => void; // callback for parent to update user list etc
+  onClose: () => void; // callback for closing the modal/dialog
 }
 
-/** Backend roles - match exactly */
-const ROLES = [
-  { value: "user", label: "User" },
-  { value: "admin", label: "Admin" }
-] as const;
-
 export const UserForm: React.FC<UserFormProps> = ({ currentUser, onSuccess, onClose }) => {
+  const { user: loggedInUser } = useAuth(); // Get the logged-in user from AuthContext
+
+  // Determine allowed roles based on logged-in user's role
+  const ALLOWED_ROLES = loggedInUser?.role === 'super_admin'
+    ? [{ value: "admin", label: "Admin" }] // Super admin can only create Admin
+    : [
+        { value: "user", label: "User" },
+        { value: "admin", label: "Admin" }
+      ] as const;
+
   // "Default" effective user - useful for required company, role during initial company_id set
   const effectiveUser = currentUser || {
     id: '1',
     name: 'Default Admin',
     email: 'admin@test.com',
-    role: 'super_admin' as const,
+    role: 'super_admin' as const, // This role is for the 'default' and not necessarily the loggedInUser
     company_id: 1,
     username: 'defaultadmin',
     isActive: true,
@@ -35,7 +40,8 @@ export const UserForm: React.FC<UserFormProps> = ({ currentUser, onSuccess, onCl
     username: "",
     email: "",
     password: "",
-    role: "user" as UserType["role"],
+    // Default role: if super_admin is logged in, default to "admin", otherwise "user"
+    role: loggedInUser?.role === 'super_admin' ? "admin" : "user" as UserType["role"],
     company_id: effectiveUser.role === "admin"
       ? String(effectiveUser.company_id || "1")
       : "1",
@@ -170,8 +176,9 @@ export const UserForm: React.FC<UserFormProps> = ({ currentUser, onSuccess, onCl
           value={formData.role}
           onChange={(e) => handleChange("role", e.target.value as UserType["role"])}
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          disabled={loggedInUser?.role === 'super_admin'} // Disable if super admin
         >
-          {ROLES.map((role) => (
+          {ALLOWED_ROLES.map((role) => (
             <option key={role.value} value={role.value}>
               {role.label}
             </option>

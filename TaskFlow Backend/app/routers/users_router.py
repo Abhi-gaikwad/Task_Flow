@@ -1,3 +1,4 @@
+# app/routers/users_router.py
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List
@@ -22,7 +23,9 @@ def create_user(
 
     # RBAC validation
     if current_user.role == UserRole.SUPER_ADMIN:
-        pass
+        # SUPER_ADMIN can only create ADMIN users
+        if user_data.role != UserRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Super admin can only create admin users.")
     elif current_user.role == UserRole.ADMIN:
         if user_data.role == UserRole.SUPER_ADMIN:
             raise HTTPException(status_code=403, detail="Cannot create super admin users")
@@ -63,6 +66,10 @@ def list_users(
     query = db.query(User)
 
     if current_user.role == UserRole.SUPER_ADMIN:
+        # Super admin sees ONLY admin users by default in the user list,
+        # regardless of the 'role' query parameter.
+        # This simplifies the frontend logic for the dashboard view.
+        query = query.filter(User.role == UserRole.ADMIN)
         if company_id:
             query = query.filter(User.company_id == company_id)
     elif current_user.role == UserRole.ADMIN:
@@ -70,8 +77,11 @@ def list_users(
     else:
         query = query.filter(User.id == current_user.id)
 
-    if role:
+    # Apply additional filters only if the user is NOT a SUPER_ADMIN
+    # or if the SUPER_ADMIN wants to further narrow down the ADMIN list
+    if current_user.role != UserRole.SUPER_ADMIN and role: # Apply role filter only if not super_admin
         query = query.filter(User.role == role)
+
     if is_active is not None:
         query = query.filter(User.is_active == is_active)
 
@@ -112,6 +122,9 @@ def update_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     if current_user.role == UserRole.SUPER_ADMIN:
+        # Super admin can update all fields for any user, but enforce role change restriction
+        if user_update.role is not None and user_update.role != user.role and user_update.role != UserRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Super admin can only change roles to 'admin' or keep current role.")
         allowed_fields = user_update.dict(exclude_unset=True)
     elif current_user.role == UserRole.ADMIN:
         if user.company_id != current_user.company_id:
@@ -161,6 +174,8 @@ def delete_user(
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
 
     if current_user.role == UserRole.SUPER_ADMIN:
+        # Super admin can delete anyone, but if it's a super_admin role trying to delete another super_admin,
+        # we might want to prevent that or require extra confirmation. For now, allow but consider.
         pass
     elif current_user.role == UserRole.ADMIN:
         if user.company_id != current_user.company_id:
@@ -187,6 +202,7 @@ def activate_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     if current_user.role == UserRole.SUPER_ADMIN:
+        # Super admin can activate anyone, but prevent changing super_admin role status if desired.
         pass
     elif current_user.role == UserRole.ADMIN:
         if user.company_id != current_user.company_id:

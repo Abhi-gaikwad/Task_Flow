@@ -1,3 +1,4 @@
+// Dashboard.tsx
 import React from 'react';
 import { CheckSquare, Users, Clock, TrendingUp } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
@@ -7,7 +8,17 @@ import { TaskChart } from './TaskChart';
 
 export const Dashboard: React.FC = () => {
   const { tasks, users, clients } = useApp();
-  const { user } = useAuth();
+  const { user } = useAuth(); //
+
+  // If the user is a super_admin, we return a specific message
+  if (user?.role === 'super_admin') { //
+    return (
+      <div className="text-center py-12">
+        <h1 className="text-2xl font-bold text-gray-900 mb-4">Welcome, Super Admin!</h1>
+        <p className="text-gray-600">Please navigate to the "Company Admins" section in the sidebar to manage administrators.</p> {/* */}
+      </div>
+    );
+  }
 
   const taskStats = {
     total: tasks.length,
@@ -24,7 +35,7 @@ export const Dashboard: React.FC = () => {
     inProgress: userTasks.filter(t => t.status === 'in-progress').length,
   };
 
-  const displayStats = user?.role === 'admin' ? taskStats : userTaskStats;
+  const displayStats = user?.role === 'admin' ? taskStats : userTaskStats; //
 
   return (
     <div className="space-y-6">
@@ -35,11 +46,11 @@ export const Dashboard: React.FC = () => {
         </div>
         <div className="text-right">
           <p className="text-sm text-gray-500">
-            {new Date().toLocaleDateString('en-US', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
+            {new Date().toLocaleDateString('en-US', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
             })}
           </p>
         </div>
@@ -66,7 +77,7 @@ export const Dashboard: React.FC = () => {
           icon={Clock}
           color="yellow"
         />
-        {user?.role === 'admin' && (
+        {user?.role === 'admin' && ( //
           <StatsCard
             title="Active Users"
             value={users.filter(u => u.isActive).length}
@@ -79,11 +90,11 @@ export const Dashboard: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <TaskChart data={displayStats} />
-        
+
         <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Tasks</h3>
           <div className="space-y-3">
-            {(user?.role === 'admin' ? tasks : userTasks)
+            {(user?.role === 'admin' ? tasks : userTasks) //
               .slice(0, 5)
               .map((task) => (
                 <div key={task.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
@@ -116,7 +127,7 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {user?.role === 'admin' && (
+      {user?.role === 'admin' && ( //
         <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Client Overview</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

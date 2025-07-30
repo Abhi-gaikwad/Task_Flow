@@ -1,28 +1,35 @@
+// Sidebar.tsx
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
+import {
+  LayoutDashboard,
   ListTodo,
-  Users, 
-  BarChart3, 
-  Settings, 
+  Users,
+  BarChart3,
+  Settings,
   LogOut,
   Bell,
   CheckSquare
 } from 'lucide-react';
-import { useAuth, usePermissions } from '../../contexts/AuthContext';
+import { useAuth, usePermissions } from '../../contexts/AuthContext'; //
 
 export const Sidebar: React.FC = () => {
-  const { user, logout } = useAuth();
-  const { canManageUsers, canViewReports } = usePermissions();
+  const { user, logout } = useAuth(); //
+  const { canManageUsers, canViewReports } = usePermissions(); //
 
+  // Define menu items and their visibility based on user role
   const menuItems = [
-    { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { label: 'Tasks', href: '/tasks', icon: ListTodo },
-    { label: 'Users', href: '/users', icon: Users, show: canManageUsers },
-    { label: 'Reports', href: '/reports', icon: BarChart3, show: canViewReports },
-    { label: 'Notifications', href: '/notifications', icon: Bell },
-    { label: 'Settings', href: '/settings', icon: Settings },
+    { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, show: true },
+    { label: 'Tasks', href: '/tasks', icon: ListTodo, show: user?.role !== 'super_admin' }, //
+    {
+      label: user?.role === 'super_admin' ? 'Company Admins' : 'Users', // Conditional label
+      href: '/users',
+      icon: Users,
+      show: canManageUsers || user?.role === 'super_admin' // Show for super_admin even if canManageUsers is false
+    },
+    { label: 'Reports', href: '/reports', icon: BarChart3, show: user?.role !== 'super_admin' }, //
+    { label: 'Notifications', href: '/notifications', icon: Bell, show: true },
+    { label: 'Settings', href: '/settings', icon: Settings, show: true },
   ];
 
   return (
@@ -44,7 +51,7 @@ export const Sidebar: React.FC = () => {
       <nav className="flex-1 px-4 py-6" aria-label="Sidebar Navigation">
         <ul className="space-y-2">
           {menuItems.map((item) =>
-            item.show !== false && (
+            item.show && ( // Check item.show property
               <li key={item.label}>
                 <NavLink
                   to={item.href}
