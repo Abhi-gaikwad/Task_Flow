@@ -7,7 +7,6 @@ from datetime import datetime
 from app.database import Base
 import enum
 
-
 # ---------- ENUMS -------------------------------------------------
 class UserRole(enum.Enum):
     SUPER_ADMIN = "super_admin"
