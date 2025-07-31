@@ -1,76 +1,57 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import Optional, List
+from pydantic import BaseModel
 from app.models import Company, User, UserRole
 from app.database import get_db
 from app.auth import super_admin_only, get_current_user, get_password_hash
-from app.schemas import CompanyResponse, CompanyWithAdminCreate
+from app.schemas import CompanyResponse, CompanyCreate
 
 router = APIRouter()
 
-@router.post("/companies/with-admin", response_model=CompanyResponse, status_code=201)
-def create_company_with_admin(
-    data: CompanyWithAdminCreate,
+# Removed: Schema for creating company with admin
+
+# Removed: Endpoint for Super Admins to create a new Company with its first admin user.
+
+@router.post("/companies", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
+def create_company(
+    company_data: CompanyCreate,
     db: Session = Depends(get_db),
     _current_user: User = Depends(super_admin_only)
 ):
     """
-    Endpoint for Super Admins to create a new Company and a Company Admin user simultaneously.
-    This ensures that every new company has an admin from the start.
+    Endpoint for Super Admins to create a new Company with its own login credentials.
     """
-    # Check for existing company by name to prevent duplicates
-    if db.query(Company).filter(Company.name == data.company_name).first():
+    # Check for existing company by name
+    if db.query(Company).filter(Company.name == company_data.name).first():
         raise HTTPException(status_code=400, detail="A company with this name already exists.")
-
-    # Check for existing user by email or username
-    if db.query(User).filter(User.email == data.admin_email).first():
-        raise HTTPException(status_code=400, detail="This email is already registered to another user.")
-    if db.query(User).filter(User.username == data.admin_username).first():
-        raise HTTPException(status_code=400, detail="This username is already taken.")
+    
+    # Check for existing company username
+    if db.query(Company).filter(Company.company_username == company_data.company_username).first():
+        raise HTTPException(status_code=400, detail="This company username is already taken.")
 
     # Create the company instance
     new_company = Company(
-        name=data.company_name,
-        description=data.company_description
-    )
-    db.add(new_company)
-    db.flush()  # Use flush to get the new_company.id before committing the transaction
-
-    # Create the admin user for the new company
-    admin_user = User(
-        email=data.admin_email,
-        username=data.admin_username,
-        hashed_password=get_password_hash(data.admin_password),
-        role=UserRole.ADMIN,
-        company_id=new_company.id,
+        name=company_data.name,
+        description=company_data.description,
+        company_username=company_data.company_username,
+        company_hashed_password=get_password_hash(company_data.company_password),
         is_active=True
     )
-    db.add(admin_user)
-    
+    db.add(new_company)
     db.commit()
     db.refresh(new_company)
 
     return new_company
-
-
-@router.post("/companies", response_model=CompanyResponse)
-def create_company(
-    name: str,
-    description: Optional[str] = None,
-    _sa=Depends(super_admin_only),
-    db: Session = Depends(get_db)
-):
-    company = Company(name=name, description=description)
-    db.add(company)
-    db.commit()
-    db.refresh(company)
-    return company
 
 @router.get("/companies", response_model=List[CompanyResponse])
 def list_companies(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """
+    List all companies (for super admin) or the user's company (for admin/user).
+    """
     if user.role == UserRole.SUPER_ADMIN:
         return db.query(Company).all()
     elif user.company_id:

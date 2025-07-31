@@ -38,18 +38,20 @@ class NotificationType(enum.Enum):
 class Company(Base):
     __tablename__ = "companies"
 
-    id          = Column(Integer, primary_key=True, index=True)
-    name        = Column(String, nullable=False)
-    description = Column(Text)
-    created_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
-    is_active   = Column(Boolean, default=True, nullable=False)
+    id                   = Column(Integer, primary_key=True, index=True)
+    name                 = Column(String, nullable=False)
+    description          = Column(Text)
+    # New fields for company login credentials
+    company_username     = Column(String, unique=True, nullable=True)
+    company_hashed_password = Column(String, nullable=True)
+    created_at           = Column(DateTime, default=datetime.utcnow, nullable=False)
+    is_active            = Column(Boolean, default=True, nullable=False)
 
     # relationships
     users = relationship("User", back_populates="company")
     tasks = relationship("Task", back_populates="company")
 
 
-# ---------- USER --------------------------------------------------
 # ---------- USER --------------------------------------------------
 class User(Base):
     __tablename__ = "users"
@@ -62,7 +64,6 @@ class User(Base):
     company_id      = Column(Integer, ForeignKey("companies.id"))
     is_active       = Column(Boolean, default=True, nullable=False)
     
-    # Fixed datetime columns - REMOVE the problematic annotation line
     created_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at      = Column(DateTime, onupdate=datetime.utcnow)
 
@@ -146,3 +147,4 @@ class Notification(Base):
     # relationships
     user = relationship("User", back_populates="notifications")
     task = relationship("Task")
+

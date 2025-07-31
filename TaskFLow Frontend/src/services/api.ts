@@ -60,21 +60,21 @@ export const authAPI = {
 
 // Company API
 export const companyAPI = {
-  // Create company with admin (for Super Admins)
-  createCompanyWithAdmin: async (data: {
-    company_name: string;
-    company_description?: string;
-    admin_username: string;
-    admin_email: string;
-    admin_password: string;
-  }) => {
-    const response = await api.post('/companies/with-admin', data);
-    return response.data;
-  },
+  // Removed: createCompanyWithAdmin
+  // createCompanyWithAdmin: async (data: {
+  //   company_name: string;
+  //   company_description?: string;
+  //   admin_username: string;
+  //   admin_email: string;
+  //   admin_password: string;
+  // }) => {
+  //   const response = await api.post('/companies/with-admin', data);
+  //   return response.data;
+  // },
 
-  // Create company only (existing method)
-  createCompany: async (name: string, description?: string) => {
-    const response = await api.post('/companies', { name, description });
+  // Create company only (modified to accept all necessary fields for CompanyCreate schema)
+  createCompany: async (data: { name: string; description?: string; company_username: string; company_password: string; }) => {
+    const response = await api.post('/companies', data);
     return response.data;
   },
 
@@ -402,7 +402,7 @@ export const notificationAPI = {
       const response = await api.put('/notifications/mark-all-read');
       return response.data;
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'Failed to mark all notifications as read');
+      throw new new Error(error.response?.data?.detail || 'Failed to mark all notifications as read');
     }
   },
 };

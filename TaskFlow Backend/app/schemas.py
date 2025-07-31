@@ -12,10 +12,13 @@ class CompanyBase(BaseModel):
     description: Optional[str] = None
 
 class CompanyCreate(CompanyBase):
-    pass
+    # Fields for company login credentials
+    company_username: str
+    company_password: str
 
 class CompanyResponse(CompanyBase):
     id: int
+    company_username: Optional[str] = None # Include username in response
     is_active: bool
     created_at: datetime
 
@@ -52,20 +55,7 @@ class UserResponse(UserBase):
 
     model_config = {"from_attributes": True}
 
-# -----------------
-# COMPANY WITH ADMIN (for superadmin creation)
-# -----------------
-
-class CompanyWithAdminCreate(BaseModel):
-    """
-    Schema for the superadmin to create a company and its admin in one request.
-    """
-    company_name: str
-    company_description: Optional[str] = None
-    admin_email: EmailStr
-    admin_username: str
-    admin_password: str
-
+# Removed: AdminUserCreate schema is no longer needed
 
 # -----------------
 # TASK SCHEMAS
@@ -118,3 +108,4 @@ class NotificationResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+

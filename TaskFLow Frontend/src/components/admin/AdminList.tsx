@@ -19,6 +19,8 @@ import {
   XCircle
 } from 'lucide-react';
 import { Button } from '../common/Button';
+// Removed: import { AdminCreationForm } from './AdminCreationForm';
+import { Modal } from '../common/Modal'; // Assuming you have a Modal component
 
 interface Admin {
   id: number;
@@ -38,14 +40,13 @@ interface Admin {
 interface AdminListProps {
   showInDashboard?: boolean;
   maxItems?: number;
-  onCreateAdmin?: () => void;
+  // onCreateAdmin?: () => void; // This prop is removed as admin creation is not here
   onEditAdmin?: (admin: Admin) => void;
 }
 
 export const AdminList: React.FC<AdminListProps> = ({ 
   showInDashboard = false, 
   maxItems,
-  onCreateAdmin,
   onEditAdmin 
 }) => {
   const { user } = useAuth();
@@ -54,10 +55,16 @@ export const AdminList: React.FC<AdminListProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterActive, setFilterActive] = useState<boolean | 'all'>('all');
+  // Removed: const [showCreateAdminModal, setShowCreateAdminModal] = useState(false);
 
   const fetchAdmins = async () => {
-    if (user?.role !== 'super_admin') {
-      setError('Access denied. Only Super Admins can view this data.');
+    // This component is now primarily for listing users, if needed by other roles.
+    // Super admin will not see this section in the dashboard.
+    // If this component is intended *only* for super admin to manage admins,
+    // then its usage should be removed from the app entirely.
+    // For now, assuming it might be used by an 'admin' role to list 'user' roles.
+    if (!user) {
+      setError('Authentication required.');
       setLoading(false);
       return;
     }
@@ -66,17 +73,30 @@ export const AdminList: React.FC<AdminListProps> = ({
       setLoading(true);
       setError(null);
       
-      // Fetch users with admin role
-      const usersData = await usersAPI.listUsers({ 
-        role: 'admin',
-        limit: maxItems || 100 
-      });
+      // Fetch users with admin role (if super_admin) or users within own company (if admin)
+      let usersData: Admin[] = [];
+      if (user.role === 'super_admin') {
+        usersData = await usersAPI.listUsers({ 
+          role: 'admin', // Only fetch actual admins if super admin
+          limit: maxItems || 100 
+        });
+      } else if (user.role === 'admin' && user.company_id) {
+        usersData = await usersAPI.listUsers({
+          company_id: user.company_id,
+          role: 'user', // Admin might list regular users
+          limit: maxItems || 100
+        });
+      } else {
+        setError('Access denied or no relevant users to display.');
+        setLoading(false);
+        return;
+      }
       
-      console.log('Fetched admins:', usersData);
+      console.log('Fetched users/admins:', usersData);
       setAdmins(Array.isArray(usersData) ? usersData : []);
     } catch (err: any) {
-      console.error('Failed to fetch admins:', err);
-      setError(err.response?.data?.detail || 'Failed to load admins');
+      console.error('Failed to fetch users/admins:', err);
+      setError(err.response?.data?.detail || 'Failed to load data');
     } finally {
       setLoading(false);
     }
@@ -87,7 +107,7 @@ export const AdminList: React.FC<AdminListProps> = ({
   }, [user]);
 
   const handleDeleteAdmin = async (adminId: number) => {
-    if (!window.confirm('Are you sure you want to deactivate this admin?')) {
+    if (!window.confirm('Are you sure you want to deactivate this user?')) {
       return;
     }
 
@@ -95,8 +115,8 @@ export const AdminList: React.FC<AdminListProps> = ({
       await usersAPI.deleteUser(adminId);
       await fetchAdmins(); // Refresh the list
     } catch (err: any) {
-      console.error('Failed to delete admin:', err);
-      alert('Failed to deactivate admin: ' + (err.response?.data?.detail || err.message));
+      console.error('Failed to deactivate user:', err);
+      alert('Failed to deactivate user: ' + (err.response?.data?.detail || err.message));
     }
   };
 
@@ -105,12 +125,13 @@ export const AdminList: React.FC<AdminListProps> = ({
       await usersAPI.activateUser(adminId);
       await fetchAdmins(); // Refresh the list
     } catch (err: any) {
-      console.error('Failed to activate admin:', err);
-      alert('Failed to activate admin: ' + (err.response?.data?.detail || err.message));
+      console.error('Failed to activate user:', err);
+      alert('Failed to activate user: ' + (err.response?.data?.detail || err.message));
     }
   };
 
-  // Filter admins based on search term and active status
+  // Removed: handleCreateAdminSuccess is no longer relevant here
+
   const filteredAdmins = admins.filter(admin => {
     const matchesSearch = admin.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          admin.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -126,7 +147,7 @@ export const AdminList: React.FC<AdminListProps> = ({
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-center h-32">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-3 text-gray-600">Loading admins...</span>
+          <span className="ml-3 text-gray-600">Loading data...</span>
         </div>
       </div>
     );
@@ -137,7 +158,7 @@ export const AdminList: React.FC<AdminListProps> = ({
       <div className="bg-white rounded-lg shadow p-6">
         <div className="text-center">
           <Shield className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Failed to Load Admins</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Failed to Load Data</h3>
           <p className="text-gray-600 mb-4">{error}</p>
           <Button onClick={fetchAdmins} className="inline-flex items-center">
             <RefreshCw className="w-4 h-4 mr-2" />
@@ -196,7 +217,7 @@ export const AdminList: React.FC<AdminListProps> = ({
               <button
                 onClick={() => onEditAdmin(admin)}
                 className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                title="Edit Admin"
+                title="Edit User"
               >
                 <Edit className="w-4 h-4" />
               </button>
@@ -205,7 +226,7 @@ export const AdminList: React.FC<AdminListProps> = ({
               <button
                 onClick={() => handleDeleteAdmin(admin.id)}
                 className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-                title="Deactivate Admin"
+                title="Deactivate User"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -213,7 +234,7 @@ export const AdminList: React.FC<AdminListProps> = ({
               <button
                 onClick={() => handleActivateAdmin(admin.id)}
                 className="p-1 text-gray-400 hover:text-green-600 transition-colors"
-                title="Activate Admin"
+                title="Activate User"
               >
                 <CheckCircle className="w-4 h-4" />
               </button>
@@ -226,32 +247,25 @@ export const AdminList: React.FC<AdminListProps> = ({
 
   if (showInDashboard) {
     // Dashboard view - compact version
+    // This section is now only relevant if an 'admin' user needs to see a compact list of 'users'.
+    // Super admin dashboard no longer uses this component.
     return (
       <div className="bg-white rounded-lg shadow">
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center">
               <Shield className="w-5 h-5 mr-2" />
-              Company Admins ({filteredAdmins.length})
+              Team Members ({filteredAdmins.length})
             </h2>
-            {onCreateAdmin && (
-              <Button onClick={onCreateAdmin} size="sm">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Admin
-              </Button>
-            )}
+            {/* Removed: Add Admin button */}
           </div>
         </div>
         <div className="p-6">
           {filteredAdmins.length === 0 ? (
             <div className="text-center py-8">
               <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600">No admins found</p>
-              {onCreateAdmin && (
-                <Button onClick={onCreateAdmin} className="mt-4">
-                  Create First Admin
-                </Button>
-              )}
+              <p className="text-gray-600">No team members found</p>
+              {/* Removed: Create First Admin button */}
             </div>
           ) : (
             <div className="space-y-4">
@@ -261,7 +275,7 @@ export const AdminList: React.FC<AdminListProps> = ({
               {filteredAdmins.length > (maxItems || 5) && (
                 <div className="text-center pt-4">
                   <p className="text-sm text-gray-500">
-                    Showing {maxItems || 5} of {filteredAdmins.length} admins
+                    Showing {maxItems || 5} of {filteredAdmins.length} members
                   </p>
                 </div>
               )}
@@ -272,21 +286,16 @@ export const AdminList: React.FC<AdminListProps> = ({
     );
   }
 
-  // Full page view
+  // Full page view (if this component is used as a standalone page for user management)
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Company Admins</h1>
-          <p className="text-gray-600 mt-1">Manage company administrators</p>
+          <h1 className="text-2xl font-bold text-gray-900">Team Members</h1>
+          <p className="text-gray-600 mt-1">Manage your company's team members</p>
         </div>
-        {onCreateAdmin && (
-          <Button onClick={onCreateAdmin}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add New Admin
-          </Button>
-        )}
+        {/* Removed: Add New Admin button */}
       </div>
 
       {/* Filters */}
@@ -297,7 +306,7 @@ export const AdminList: React.FC<AdminListProps> = ({
               <Search className="w-5 h-5 absolute left-3 top-3 text-gray-400" />
               <input
                 type="text"
-                placeholder="Search admins by name, email, or company..."
+                placeholder="Search users by name, email, or company..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -331,7 +340,7 @@ export const AdminList: React.FC<AdminListProps> = ({
               <Users className="w-6 h-6 text-white" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Total Admins</p>
+              <p className="text-sm font-medium text-gray-600">Total Members</p>
               <p className="text-2xl font-bold text-gray-900">{admins.length}</p>
             </div>
           </div>
@@ -342,7 +351,7 @@ export const AdminList: React.FC<AdminListProps> = ({
               <CheckCircle className="w-6 h-6 text-white" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Active Admins</p>
+              <p className="text-sm font-medium text-gray-600">Active Members</p>
               <p className="text-2xl font-bold text-gray-900">
                 {admins.filter(admin => admin.is_active).length}
               </p>
@@ -355,7 +364,7 @@ export const AdminList: React.FC<AdminListProps> = ({
               <XCircle className="w-6 h-6 text-white" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">Inactive Admins</p>
+              <p className="text-sm font-medium text-gray-600">Inactive Members</p>
               <p className="text-2xl font-bold text-gray-900">
                 {admins.filter(admin => !admin.is_active).length}
               </p>
@@ -364,25 +373,20 @@ export const AdminList: React.FC<AdminListProps> = ({
         </div>
       </div>
 
-      {/* Admin List */}
+      {/* User List */}
       <div className="bg-white rounded-lg shadow">
         <div className="p-6">
           {filteredAdmins.length === 0 ? (
             <div className="text-center py-12">
               <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No admins found</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No members found</h3>
               <p className="text-gray-600 mb-6">
                 {searchTerm || filterActive !== 'all' 
                   ? 'Try adjusting your search or filter criteria'
-                  : 'Get started by adding your first company admin'
+                  : 'Get started by adding your first team member'
                 }
               </p>
-              {onCreateAdmin && !searchTerm && filterActive === 'all' && (
-                <Button onClick={onCreateAdmin}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add First Admin
-                </Button>
-              )}
+              {/* Removed: Add First Admin button */}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -393,6 +397,8 @@ export const AdminList: React.FC<AdminListProps> = ({
           )}
         </div>
       </div>
+
+      {/* Removed: Admin creation modal */}
     </div>
   );
 };

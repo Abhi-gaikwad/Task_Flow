@@ -11,23 +11,25 @@ import {
   Bell,
   CheckSquare
 } from 'lucide-react';
-import { useAuth, usePermissions } from '../../contexts/AuthContext'; //
+import { useAuth, usePermissions } from '../../contexts/AuthContext';
 
 export const Sidebar: React.FC = () => {
-  const { user, logout } = useAuth(); //
-  const { canManageUsers, canViewReports } = usePermissions(); //
+  const { user, logout } = useAuth();
+  const { canManageUsers, canViewReports } = usePermissions();
 
   // Define menu items and their visibility based on user role
   const menuItems = [
     { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, show: true },
-    { label: 'Tasks', href: '/tasks', icon: ListTodo, show: user?.role !== 'super_admin' }, //
+    { label: 'Tasks', href: '/tasks', icon: ListTodo, show: user?.role !== 'super_admin' },
     {
-      label: user?.role === 'super_admin' ? 'Company Admins' : 'Users', // Conditional label
+      // This item will now only show if the user is an 'admin' and can manage users
+      // or if it's a regular user (though typically regular users won't see this link)
+      label: 'Users', // Simplified label as super_admin won't see it
       href: '/users',
       icon: Users,
-      show: canManageUsers || user?.role === 'super_admin' // Show for super_admin even if canManageUsers is false
+      show: user?.role === 'admin' && canManageUsers // Show ONLY for admin role
     },
-    { label: 'Reports', href: '/reports', icon: BarChart3, show: user?.role !== 'super_admin' }, //
+    { label: 'Reports', href: '/reports', icon: BarChart3, show: user?.role !== 'super_admin' },
     { label: 'Notifications', href: '/notifications', icon: Bell, show: true },
     { label: 'Settings', href: '/settings', icon: Settings, show: true },
   ];

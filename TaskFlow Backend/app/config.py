@@ -9,3 +9,4 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env"}  # Updated for Pydantic v2
 
 settings = Settings()
+
