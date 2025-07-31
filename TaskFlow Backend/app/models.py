@@ -147,4 +147,3 @@ class Notification(Base):
     # relationships
     user = relationship("User", back_populates="notifications")
     task = relationship("Task")
-

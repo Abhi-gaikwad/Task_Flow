@@ -1,4 +1,4 @@
-// Sidebar.tsx
+// src/components/layout/Sidebar.tsx
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
@@ -9,25 +9,25 @@ import {
   Settings,
   LogOut,
   Bell,
-  CheckSquare
+  CheckSquare,
 } from 'lucide-react';
 import { useAuth, usePermissions } from '../../contexts/AuthContext';
+import logo from '../../assets/logo.png'; // Ensure this file really exists in /src/assets/
 
 export const Sidebar: React.FC = () => {
   const { user, logout } = useAuth();
-  const { canManageUsers, canViewReports } = usePermissions();
+  const { canManageUsers } = usePermissions();
 
-  // Define menu items and their visibility based on user role
+  const appTitle = user?.company?.name || 'Blasto';
+
   const menuItems = [
     { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, show: true },
     { label: 'Tasks', href: '/tasks', icon: ListTodo, show: user?.role !== 'super_admin' },
     {
-      // This item will now only show if the user is an 'admin' and can manage users
-      // or if it's a regular user (though typically regular users won't see this link)
-      label: 'Users', // Simplified label as super_admin won't see it
+      label: 'Users',
       href: '/users',
       icon: Users,
-      show: user?.role === 'admin' && canManageUsers // Show ONLY for admin role
+      show: user?.role === 'admin' && canManageUsers,
     },
     { label: 'Reports', href: '/reports', icon: BarChart3, show: user?.role !== 'super_admin' },
     { label: 'Notifications', href: '/notifications', icon: Bell, show: true },
@@ -39,12 +39,21 @@ export const Sidebar: React.FC = () => {
       {/* Logo Section */}
       <div className="p-6 border-b border-gray-200">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
-            <CheckSquare className="w-6 h-6 text-white" />
-          </div>
+          {/* Logo Image with fallback */}
+          <img
+            src={logo}
+            alt="Company Logo"
+            onError={(e) => {
+              const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(appTitle)}&background=random`;
+              (e.target as HTMLImageElement).src = fallback;
+            }}
+            className="w-10 h-10 object-contain rounded-md bg-gray-100"
+          />
+
           <div>
-            <h2 className="text-xl font-bold text-gray-900">TaskFlow</h2>
-            <p className="text-sm text-gray-500">Pro</p>
+            <h2 className="text-xl font-bold text-gray-900">{appTitle}</h2>
+            {user?.company?.name && <p className="text-sm text-gray-500">Dashboard</p>}
+            {user?.role === 'super_admin' && <p className="text-sm text-gray-500">Pro</p>}
           </div>
         </div>
       </div>
@@ -53,13 +62,12 @@ export const Sidebar: React.FC = () => {
       <nav className="flex-1 px-4 py-6" aria-label="Sidebar Navigation">
         <ul className="space-y-2">
           {menuItems.map((item) =>
-            item.show && ( // Check item.show property
+            item.show ? (
               <li key={item.label}>
                 <NavLink
                   to={item.href}
                   className={({ isActive }) =>
-                    `w-full flex items-center px-4 py-3 rounded-lg transition-all duration-200 text-sm font-medium
-                    ${
+                    `w-full flex items-center px-4 py-3 rounded-lg transition-all duration-200 text-sm font-medium ${
                       isActive
                         ? 'bg-blue-50 text-blue-600'
                         : 'text-gray-600 hover:bg-gray-100'
@@ -70,7 +78,7 @@ export const Sidebar: React.FC = () => {
                   {item.label}
                 </NavLink>
               </li>
-            )
+            ) : null
           )}
         </ul>
       </nav>
@@ -79,15 +87,16 @@ export const Sidebar: React.FC = () => {
       <div className="p-4 border-t border-gray-200">
         <div className="flex items-center space-x-3 mb-4">
           <img
-            src={user?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'User')}&background=random`}
+            src={
+              user?.avatar ||
+              `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'User')}&background=random`
+            }
             alt={`${user?.name || 'User'}'s avatar`}
             className="w-10 h-10 rounded-full object-cover"
           />
           <div className="flex-1">
             <p className="text-sm font-medium text-gray-900">{user?.name}</p>
-            <p className="text-xs text-gray-500 capitalize">
-              {user?.role?.replace('_', ' ')}
-            </p>
+            <p className="text-xs text-gray-500 capitalize">{user?.role?.replace('_', '')}</p>
           </div>
         </div>
         <button

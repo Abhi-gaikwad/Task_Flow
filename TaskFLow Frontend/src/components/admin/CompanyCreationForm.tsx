@@ -1,206 +1,187 @@
-// CompanyCreationForm.tsx
+// src/components/admin/CompanyCreationForm.tsx
 import React, { useState } from 'react';
-import { companyAPI } from '../../services/api'; // Adjust this path based on your project structure, e.g., '../api'
+import { companyAPI, handleApiError } from '../../services/api'; // Import handleApiError
+import { Building, User, Lock, Mail, UserCheck } from 'lucide-react';
 
 interface CompanyCreationFormProps {
-    onSuccess: () => void;
-    onCancel: () => void;
-    onClose?: () => void;
+  onSuccess: () => void;
+  onCancel: () => void;
 }
 
-interface FormData {
-    company_name: string;
-    company_username: string; // Changed from admin_username
-    company_password: string; // Changed from admin_password
-    company_description?: string; // Added for description
+interface CompanyFormData {
+  name: string;
+  description: string;
+  company_username: string;
+  company_password: string;
 }
 
-interface FormErrors {
-    company_name?: string;
-    company_username?: string;
-    company_password?: string;
-    company_description?: string;
-}
+// AdminFormData and step 'admin' are no longer needed
+// interface AdminFormData {
+//   email: string;
+//   username: string;
+//   password: string;
+//   full_name: string;
+// }
 
-const CompanyCreationForm: React.FC<CompanyCreationFormProps> = ({ 
-    onSuccess, 
-    onCancel, 
-    onClose 
-}) => {
-    const [formData, setFormData] = useState<FormData>({
-        company_name: '',
-        company_username: '',
-        company_password: '',
-        company_description: '',
-    });
-    const [errors, setErrors] = useState<FormErrors>({}); // Client-side validation errors
-    const [loading, setLoading] = useState(false); // For showing loading state
-    const [apiError, setApiError] = useState<string | null>(null); // For general API errors from backend
+const CompanyCreationForm: React.FC<CompanyCreationFormProps> = ({ onSuccess, onCancel }) => {
+  // Removed step state, now always 'company' implicitly
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // createdCompanyId and adminData state no longer needed for this simplified flow
+  // const [createdCompanyId, setCreatedCompanyId] = useState<number | null>(null);
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-        // Clear specific error for the field as user types
-        setErrors(prev => {
-            const newErrors = { ...prev };
-            delete newErrors[name as keyof FormErrors];
-            return newErrors;
-        });
-        setApiError(null); // Clear general API error on any input change
-    };
+  const [companyData, setCompanyData] = useState<CompanyFormData>({
+    name: '',
+    description: '',
+    company_username: '',
+    company_password: '',
+  });
 
-    const validateForm = (): boolean => {
-        let newErrors: FormErrors = {};
+  // Removed adminData state
+  // const [adminData, setAdminData] = useState<AdminFormData>({
+  //   email: '',
+  //   username: '',
+  //   password: '',
+  //   full_name: '',
+  // });
 
-        if (!formData.company_name.trim()) {
-            newErrors.company_name = 'Company name is required.';
-        }
-        if (!formData.company_username.trim()) {
-            newErrors.company_username = 'Company username is required.';
-        }
-        if (!formData.company_password.trim()) {
-            newErrors.company_password = 'Company password is required.';
-        } else if (formData.company_password.length < 6) {
-            newErrors.company_password = 'Password must be at least 6 characters.';
-        }
+  const handleCompanyChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setCompanyData(prev => ({ ...prev, [name]: value }));
+    setError(null);
+  };
 
-        setErrors(newErrors); // Update the state with new errors
-        return Object.keys(newErrors).length === 0; // Returns true if no errors
-    };
+  // Removed handleAdminChange
+  // const handleAdminChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  //   const { name, value } = e.target;
+  //   setAdminData(prev => ({ ...prev, [name]: value }));
+  //   setError(null);
+  // };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault(); // Prevent default form submission behavior
-        setApiError(null); // Clear any previous API errors before a new attempt
+  const handleCompanySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
 
-        if (!validateForm()) {
-            console.warn("Client-side validation failed. Please check the form errors.");
-            return; // Stop submission if validation fails
-        }
+    try {
+      await companyAPI.createCompany(companyData);
+      // No need to setCreatedCompanyId or setStep to 'admin'
+      onSuccess(); // Directly call onSuccess after company creation
+    } catch (err: any) {
+      console.error('Company creation failed:', err);
+      setError(handleApiError(err)); // Use handleApiError for better messages
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        setLoading(true); // Set loading state
-        try {
-            console.log("Attempting to create company with data:", formData);
-            // Call companyAPI.createCompany instead of createCompanyWithAdmin
-            await companyAPI.createCompany({
-                name: formData.company_name,
-                description: formData.company_description,
-                company_username: formData.company_username,
-                company_password: formData.company_password,
-            });
-            console.log("Company created successfully!");
-            onSuccess(); // Call the success callback provided by the parent
-        } catch (error: any) {
-            console.error("API call failed during company creation:", error.response?.data || error.message);
-            // Extract a more user-friendly error message
-            const errorMessage = error.response?.data?.detail || 'Failed to create company. Please try again.';
-            setApiError(errorMessage); // Set the API error state
-        } finally {
-            setLoading(false); // Reset loading state
-        }
-    };
+  // Removed handleAdminSubmit and handleSkipAdmin
+  // const handleAdminSubmit = async (e: React.FormEvent) => { /* ... */ };
+  // const handleSkipAdmin = () => { /* ... */ };
 
-    // Handle cancel/close
-    const handleCancel = () => {
-        if (onCancel) onCancel();
-        if (onClose) onClose();
-    };
+  // Only render the company creation form
+  return (
+    <form onSubmit={handleCompanySubmit} className="space-y-6">
+      <div className="text-center mb-6">
+        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Building className="w-8 h-8 text-blue-600" />
+        </div>
+        <h3 className="text-lg font-semibold text-gray-900">Create New Company</h3>
+        <p className="text-sm text-gray-600 mt-1">Provide Company Information</p> {/* Simplified text */}
+      </div>
 
-    // Determine if the submit button should be enabled
-    const canSubmit = !loading &&
-        formData.company_name.trim() !== '' &&
-        formData.company_username.trim() !== '' &&
-        formData.company_password.trim() !== '' &&
-        Object.keys(errors).length === 0; // Also ensure no current client-side validation errors
+      <div className="space-y-4">
+        <div>
+          <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+            Company Name *
+          </label>
+          <input
+            type="text"
+            id="name"
+            name="name"
+            value={companyData.name}
+            onChange={handleCompanyChange}
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="Enter company name"
+            required
+          />
+        </div>
 
-    return (
-        <form onSubmit={handleSubmit} className="p-4 space-y-4 bg-white rounded-lg shadow-sm">
-            <div>
-                <label htmlFor="company_name" className="block text-sm font-medium text-gray-700">Company Name:</label>
-                <input
-                    type="text"
-                    id="company_name"
-                    name="company_name"
-                    value={formData.company_name}
-                    onChange={handleChange}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="e.g., Acme Corp"
-                    aria-invalid={!!errors.company_name}
-                    aria-describedby={errors.company_name ? "company-name-error" : undefined}
-                />
-                {errors.company_name && <p id="company-name-error" className="text-red-500 text-xs mt-1">{errors.company_name}</p>}
-            </div>
+        <div>
+          <label htmlFor="description" className="block text-sm font-medium text-gray-700">
+            Description
+          </label>
+          <textarea
+            id="description"
+            name="description"
+            value={companyData.description}
+            onChange={handleCompanyChange}
+            rows={3}
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="Brief description of the company"
+          />
+        </div>
 
-            <div>
-                <label htmlFor="company_description" className="block text-sm font-medium text-gray-700">Company Description (Optional):</label>
-                <input
-                    type="text"
-                    id="company_description"
-                    name="company_description"
-                    value={formData.company_description}
-                    onChange={handleChange}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="e.g., Leading tech solutions provider"
-                />
-            </div>
+        <div>
+          <label htmlFor="company_username" className="block text-sm font-medium text-gray-700">
+            Company Login Username *
+          </label>
+          <input
+            type="text"
+            id="company_username"
+            name="company_username"
+            value={companyData.company_username}
+            onChange={handleCompanyChange}
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="Unique username for company login"
+            required
+          />
+          <p className="text-xs text-gray-500 mt-1">This will be used to log in as the company's administrator</p> {/* Simplified text */}
+        </div>
 
-            <div>
-                <label htmlFor="company_username" className="block text-sm font-medium text-gray-700">Company Login Username:</label>
-                <input
-                    type="text"
-                    id="company_username"
-                    name="company_username"
-                    value={formData.company_username}
-                    onChange={handleChange}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="e.g., acmecorp_login"
-                    aria-invalid={!!errors.company_username}
-                    aria-describedby={errors.company_username ? "company-username-error" : undefined}
-                />
-                {errors.company_username && <p id="company-username-error" className="text-red-500 text-xs mt-1">{errors.company_username}</p>}
-            </div>
-            
-            <div>
-                <label htmlFor="company_password" className="block text-sm font-medium text-gray-700">Company Login Password:</label>
-                <input
-                    type="password"
-                    id="company_password"
-                    name="company_password"
-                    value={formData.company_password}
-                    onChange={handleChange}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Minimum 6 characters"
-                    aria-invalid={!!errors.company_password}
-                    aria-describedby={errors.company_password ? "company-password-error" : undefined}
-                />
-                {errors.company_password && <p id="company-password-error" className="text-red-500 text-xs mt-1">{errors.company_password}</p>}
-            </div>
+        <div>
+          <label htmlFor="company_password" className="block text-sm font-medium text-gray-700">
+            Company Login Password *
+          </label>
+          <input
+            type="password"
+            id="company_password"
+            name="company_password"
+            value={companyData.company_password}
+            onChange={handleCompanyChange}
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="Secure password for company login"
+            required
+            minLength={6}
+          />
+        </div>
+      </div>
 
-            {/* Display general API errors */}
-            {apiError && (
-                <div className="text-red-600 text-sm p-3 bg-red-50 border border-red-400 rounded-md" role="alert">
-                    {apiError}
-                </div>
-            )}
+      {error && (
+        <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
 
-            <div className="flex justify-end space-x-3 mt-6">
-                <button
-                    type="button"
-                    onClick={handleCancel}
-                    disabled={loading} // Disable cancel button when loading
-                    className="px-5 py-2 bg-gray-300 text-gray-800 font-medium rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    Cancel
-                </button>
-                <button
-                    type="submit"
-                    disabled={!canSubmit || loading} // Disable submit if not canSubmit or if loading
-                    className="px-5 py-2 bg-green-600 text-white font-medium rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    {loading ? 'Creating...' : 'Create Company'}
-                </button>
-            </div>
-        </form>
-    );
+      <div className="flex justify-end space-x-3 pt-4">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={loading}
+          className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={loading || !companyData.name || !companyData.company_username || !companyData.company_password}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? 'Creating Company...' : 'Create Company'} {/* Simplified button text */}
+        </button>
+      </div>
+    </form>
+  );
 };
 
 export default CompanyCreationForm;

@@ -3,8 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApp } from '../../contexts/AppContext';
 import { usersAPI, companyAPI } from '../../services/api';
-import CompanyCreationForm  from '../admin/CompanyCreationForm'; // This component will be modified
-import { Modal } from '../common/Modal';
+import CompanyCreationForm  from '../admin/CompanyCreationForm';
+import { Modal } from '../common/Modal'; 
 
 import {
   Users,
@@ -20,10 +20,10 @@ import {
   Eye,
   Edit,
   Mail,
-  Shield,
   Plus,
   CheckCircle,
-  KeyRound
+  // KeyRound, // Not used as much for company cards if direct login is the only path
+  // LogIn   // No longer needed in Quick Actions for super_admin
 } from 'lucide-react';
 
 interface DashboardStats {
@@ -68,7 +68,7 @@ interface Company {
 }
 
 export const Dashboard: React.FC = () => {
-  const { user } = useAuth();
+  const { user } = useAuth(); // Removed companyLogin from here
   const { tasks = [], notifications = [] } = useApp();
 
   const [stats, setStats] = useState<DashboardStats>({
@@ -91,32 +91,38 @@ export const Dashboard: React.FC = () => {
   const [companiesLoading, setCompaniesLoading] = useState(false);
 
   const [showCreateCompanyModal, setShowCreateCompanyModal] = useState(false);
+  // Removed company login related states:
+  // const [showCompanyLoginModal, setShowCompanyLoginModal] = useState(false);
+  // const [companyLoginData, setCompanyLoginData] = useState({ username: '', password: '' });
+  // const [companyLoginError, setCompanyLoginError] = useState<string | null>(null);
+  // const [companyLoginLoading, setCompanyLoginLoading] = useState(false);
+
 
   const loadUsers = async () => {
-    if (!user || user.role !== 'admin') {
+    if (user?.role === 'admin' && user.company_id) {
+      try {
+        setUsersLoading(true);
+        const usersData = await usersAPI.listUsers({
+          limit: 100,
+          is_active: undefined,
+        });
+        setUsers(usersData || []);
+        const activeUsers = usersData?.filter(u => u.is_active).length || 0;
+        const inactiveUsers = usersData?.filter(u => !u.is_active).length || 0;
+        setStats(prevStats => ({
+          ...prevStats,
+          totalUsers: usersData?.length || 0,
+          activeUsers,
+          inactiveUsers,
+        }));
+      } catch (err: any) {
+        console.error('Failed to load users:', err);
+        setError('Failed to load users data');
+      } finally {
+        setUsersLoading(false);
+      }
+    } else {
       setUsers([]);
-      return;
-    }
-    try {
-      setUsersLoading(true);
-      const usersData = await usersAPI.listUsers({
-        limit: 100,
-        is_active: undefined,
-      });
-      setUsers(usersData || []);
-      const activeUsers = usersData?.filter(u => u.is_active).length || 0;
-      const inactiveUsers = usersData?.filter(u => !u.is_active).length || 0;
-      setStats(prevStats => ({
-        ...prevStats,
-        totalUsers: usersData?.length || 0,
-        activeUsers,
-        inactiveUsers,
-      }));
-    } catch (err: any) {
-      console.error('Failed to load users:', err);
-      setError('Failed to load users data');
-    } finally {
-      setUsersLoading(false);
     }
   };
 
@@ -172,12 +178,11 @@ export const Dashboard: React.FC = () => {
         }
 
         if (user?.role === 'admin') {
-          newStats.totalCompanies = 1;
+          newStats.totalCompanies = 1; 
         }
 
         setStats(newStats);
 
-        // Recent Activities
         const activities: RecentActivity[] = [];
         if (Array.isArray(tasks)) {
           const recentTasks = tasks
@@ -213,7 +218,7 @@ export const Dashboard: React.FC = () => {
         activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
         setRecentActivities(activities.slice(0, 5));
 
-        if (user?.role === 'admin') {
+        if (user?.role === 'admin' && user.company_id) {
           await loadUsers();
         }
         if (user?.role === 'super_admin') {
@@ -228,8 +233,8 @@ export const Dashboard: React.FC = () => {
     };
 
     loadDashboardData();
-    // eslint-disable-next-line
   }, [user, tasks, notifications]);
+
 
   const handleUserAction = async (action: string, userId: number) => {
     try {
@@ -251,10 +256,39 @@ export const Dashboard: React.FC = () => {
     loadCompanies();
   };
 
-  const handleCompanyClick = (company: Company) => {
-    console.log("Company card clicked:", company);
-    // Add modal or navigation if needed
-  };
+  // Removed handleCompanyClick function
+  // const handleCompanyClick = (company: Company) => {
+  //   console.log("Company card clicked:", company);
+  //   setShowCompanyLoginModal(true);
+  //   setCompanyLoginData({ username: company.company_username || '', password: '' });
+  // };
+
+  // Removed handleCompanyLoginChange function
+  // const handleCompanyLoginChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  //   const { name, value } = e.target;
+  //   setCompanyLoginData(prev => ({ ...prev, [name]: value }));
+  //   setCompanyLoginError(null);
+  // };
+
+  // Removed handleCompanyLoginSubmit function
+  // const handleCompanyLoginSubmit = async (e: React.FormEvent) => {
+  //   e.preventDefault();
+  //   setCompanyLoginError(null);
+  //   setCompanyLoginLoading(true);
+
+  //   try {
+  //     console.log('Attempting company login via Dashboard.tsx with:', { username: companyLoginData.username, password: '***' });
+  //     await companyLogin(companyLoginData.username, companyLoginData.password);
+  //     console.log('Company login successful from Dashboard.tsx');
+  //     setShowCompanyLoginModal(false);
+  //   } catch (err: any) {
+  //     console.error('Company login failed from Dashboard.tsx:', err);
+  //     setCompanyLoginError(err.message || 'Invalid company username or password.');
+  //   } finally {
+  //     setCompanyLoginLoading(false);
+  //   }
+  // };
+
 
   if (loading) {
     return (
@@ -337,7 +371,7 @@ export const Dashboard: React.FC = () => {
     },
   ].filter(card => card.show);
 
-  const shouldShowUserSection = user?.role === 'admin';
+  const shouldShowUserSection = user?.role === 'admin'; 
 
   return (
     <div className="space-y-6">
@@ -356,6 +390,11 @@ export const Dashboard: React.FC = () => {
             <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 capitalize">
               {user?.role?.replace('_', ' ')}
             </span>
+            {user?.role === 'admin' && user?.company?.name && (
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-200 text-gray-800">
+                Company: {user.company.name}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -425,16 +464,30 @@ export const Dashboard: React.FC = () => {
               </button>
 
               {user?.role === 'super_admin' && (
-                <button
-                  onClick={() => {
-                    console.log("Create New Company button clicked from Quick Actions!");
-                    setShowCreateCompanyModal(true);
-                  }}
-                  className="w-full text-left px-4 py-3 bg-green-50 hover:bg-green-100 rounded-lg transition-colors flex items-center"
-                >
-                  <Building className="w-5 h-5 text-green-600 mr-3" />
-                  <span className="text-green-900 font-medium">Create New Company</span>
-                </button>
+                <>
+                  <button
+                    onClick={() => {
+                      console.log("Create New Company button clicked from Quick Actions!");
+                      setShowCreateCompanyModal(true);
+                    }}
+                    className="w-full text-left px-4 py-3 bg-green-50 hover:bg-green-100 rounded-lg transition-colors flex items-center"
+                  >
+                    <Building className="w-5 h-5 text-green-600 mr-3" />
+                    <span className="text-green-900 font-medium">Create New Company</span>
+                  </button>
+                  {/* Removed the "Login as Company" button */}
+                  {/* <button
+                    onClick={() => {
+                      console.log("Login as Company button clicked!");
+                      setShowCompanyLoginModal(true);
+                      setCompanyLoginData({ username: '', password: '' });
+                    }}
+                    className="w-full text-left px-4 py-3 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors flex items-center"
+                  >
+                    <LogIn className="w-5 h-5 text-purple-600 mr-3" />
+                    <span className="text-purple-900 font-medium">Login as Company</span>
+                  </button> */}
+                </>
               )}
 
               <button className="w-full text-left px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
@@ -496,7 +549,8 @@ export const Dashboard: React.FC = () => {
                   <div
                     key={company.id}
                     className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
-                    onClick={() => handleCompanyClick(company)}
+                    // Removed onClick handler from company cards
+                    // onClick={() => handleCompanyClick(company)} 
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-3">
@@ -510,8 +564,8 @@ export const Dashboard: React.FC = () => {
                           )}
                           {company.company_username && (
                             <p className="text-xs text-gray-500 flex items-center mt-1">
-                              <KeyRound className="w-3 h-3 mr-1" />
-                              Login: {company.company_username}
+                              {/* Changed to just display username, not suggest login interaction from here */}
+                              Login Username: {company.company_username} 
                             </p>
                           )}
                           <p className="text-xs text-gray-500 mt-2">
@@ -535,7 +589,7 @@ export const Dashboard: React.FC = () => {
         </div>
       )}
 
-      {/* User Management Section - Only for 'Admin' */}
+      {/* User Management Section - Only for 'Admin' or when Super Admin has logged in as a company admin*/}
       {shouldShowUserSection && (
         <div className="bg-white rounded-lg shadow">
           <div className="p-6 border-b border-gray-200">
@@ -586,10 +640,7 @@ export const Dashboard: React.FC = () => {
                   </thead>
                   <tbody>
                     {users
-                      .filter(dashboardUser =>
-                        dashboardUser.company?.id === user?.company_id
-                      )
-                      .slice(0, 10)
+                      .slice(0, 10) 
                       .map((dashboardUser) => (
                         <tr key={dashboardUser.id} className="border-b border-gray-100 hover:bg-gray-50">
                           <td className="py-3">
@@ -678,10 +729,9 @@ export const Dashboard: React.FC = () => {
       )}
 
       {/* Create Company Modal */}
-      {/* Create Company Modal */}
-      <Modal 
-        isOpen={showCreateCompanyModal} // <--- ADD THIS PROP
-        title="Create New Company" 
+      <Modal
+        isOpen={showCreateCompanyModal}
+        title="Create New Company"
         onClose={() => setShowCreateCompanyModal(false)}
       >
         <CompanyCreationForm
@@ -689,6 +739,64 @@ export const Dashboard: React.FC = () => {
           onCancel={() => setShowCreateCompanyModal(false)}
         />
       </Modal>
+
+      {/* Removed Company Login Modal */}
+      {/* <Modal
+        isOpen={showCompanyLoginModal}
+        title="Login to Company Dashboard"
+        onClose={() => setShowCompanyLoginModal(false)}
+        maxWidth="sm"
+      >
+        <form onSubmit={handleCompanyLoginSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="company_username_login" className="block text-sm font-medium text-gray-700">Company Username:</label>
+            <input
+              type="text"
+              id="company_username_login"
+              name="username"
+              value={companyLoginData.username}
+              onChange={handleCompanyLoginChange}
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="company_password_login" className="block text-sm font-medium text-gray-700">Company Password:</label>
+            <input
+              type="password"
+              id="company_password_login"
+              name="password"
+              value={companyLoginData.password}
+              onChange={handleCompanyLoginChange}
+              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
+              required
+            />
+          </div>
+          {companyLoginError && (
+            <div className="text-red-600 text-sm p-3 bg-red-50 border border-red-400 rounded-md" role="alert">
+              {companyLoginError}
+            </div>
+          )}
+          <div className="flex justify-end space-x-3 mt-6">
+            <button
+              type="button"
+              onClick={() => setShowCompanyLoginModal(false)}
+              disabled={companyLoginLoading}
+              className="px-5 py-2 bg-gray-300 text-gray-800 font-medium rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={companyLoginLoading || !companyLoginData.username || !companyLoginData.password}
+              className="px-5 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {companyLoginLoading ? 'Logging in...' : 'Login'}
+            </button>
+          </div>
+        </form>
+      </Modal> */}
+
     </div>
   );
 };
