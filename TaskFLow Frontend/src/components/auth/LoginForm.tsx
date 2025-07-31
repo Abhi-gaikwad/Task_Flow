@@ -5,32 +5,31 @@ import { Button } from '../common/Button';
 import { useNavigate } from 'react-router-dom';
 
 export const LoginForm: React.FC = () => {
-  const [email, setEmail] = useState();
-  const [password, setPassword] = useState();
+  // FIX: Initialize state with empty strings to make inputs controlled from the start.
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null); // State to hold login errors
 
-  const { login, user } = useAuth(); // ✅ Hook moved inside
-  const navigate = useNavigate();    // ✅ Hook moved inside
+  const { login } = useAuth();
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(null); // Clear previous errors
 
     const result = await login(email, password);
     setLoading(false);
 
     if (result.success) {
-      // ✅ Redirect by role
-      if (user?.role === 'super_admin') {
-        navigate('/dashboard/superadmin');
-      } else if (user?.role === 'admin') {
-        navigate('/dashboard/admin');
-      } else {
-        navigate('/dashboard/user');
-      }
+      // The navigation logic can be handled by a dedicated component or in the AuthContext
+      // For now, we can redirect based on the role we get back.
+      // A better approach is to have a post-login landing page that redirects.
+      navigate('/dashboard'); 
     } else {
-      alert(result.error || 'Login failed.');
+      setError(result.error || 'Login failed. Please check your credentials.');
     }
   };
 
@@ -90,6 +89,12 @@ export const LoginForm: React.FC = () => {
                   </button>
                 </div>
               </div>
+              
+              {error && (
+                <div className="text-red-600 text-sm p-3 border border-red-300 rounded-lg bg-red-50">
+                  {error}
+                </div>
+              )}
 
               <Button
                 type="submit"

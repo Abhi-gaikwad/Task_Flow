@@ -19,7 +19,7 @@ def init_db() -> None:
         super_admin = User(
             email="superadmin@test.com",
             username="superadmin",
-            hashed_password=get_password_hash("superadmin123"),
+            hashed_password=get_password_hash("123"),
             role=UserRole.SUPER_ADMIN,
             full_name="Super Admin",
             avatar_url="https://ui-avatars.com/api/?name=Super+Admin",

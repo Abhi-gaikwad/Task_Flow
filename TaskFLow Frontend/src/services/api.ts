@@ -1,433 +1,524 @@
-import axios, { AxiosResponse, AxiosError } from 'axios';
-import {
-  LoginResponse,
-  User,
-  Task,
-  Company,
-  DashboardData,
-  ApiError,
-} from '../types';
+// src/services/api.ts
+import axios from 'axios';
 
-// ✅ Backend base URL
-const API_BASE_URL = 'http://localhost:8000';
-
-// ✅ Axios Instance
+// Create axios instance with base configuration
 const api = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10000,
+  baseURL: 'http://localhost:8000/api/v1', // Adjust this to match your backend URL
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
-// ✅ Add token to every request
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+// Add request interceptor to include auth token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
   }
-  return config;
-});
+);
 
-// ✅ Global error handler (401 redirect)
+// Add response interceptor to handle auth errors
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
+  (error) => {
     if (error.response?.status === 401) {
+      // Token expired or invalid
       localStorage.removeItem('access_token');
       localStorage.removeItem('auth');
-
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
+      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
 );
 
-// ✅ Auth API - Updated for OAuth2PasswordRequestForm
+// Auth API
 export const authAPI = {
-  login: async (username: string, password: string): Promise<LoginResponse> => {
-    try {
-      const params = new URLSearchParams();
-      params.append('username', username);
-      params.append('password', password);
-
-      const response: AxiosResponse<LoginResponse> = await api.post('/api/v1/login', params, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-      });
-
-      if (response.data.access_token) {
-        localStorage.setItem('access_token', response.data.access_token);
-      }
-
-      return response.data;
-    } catch (error) {
-      const axiosErr = error as AxiosError<ApiError>;
-      throw new Error(
-        axiosErr.response?.data?.detail || 'Login failed. Invalid credentials.'
-      );
-    }
-  },
-
-  getCurrentUser: async (): Promise<User> => {
-    const response: AxiosResponse<User> = await api.get('/api/v1/profile');
+  login: async (email: string, password: string) => {
+    const formData = new FormData();
+    formData.append('username', email); // Note: backend expects 'username' field
+    formData.append('password', password);
+    
+    const response = await api.post('/login', formData, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    });
     return response.data;
   },
 
-  logout: async (): Promise<void> => {
-    try {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('auth');
-    } catch (e) {
-      console.warn('Logout cleanup failed');
-    }
+  getCurrentUser: async () => {
+    const response = await api.get('/users/me');
+    return response.data;
   },
 };
 
-// ✅ User API - Enhanced for UserList component compatibility
-export const userAPI = {
-  getUsers: async (params?: {
-    skip?: number;
-    limit?: number;
-    company_id?: number;
-    role?: string;
+// Company API
+export const companyAPI = {
+  // Create company with admin (for Super Admins)
+  createCompanyWithAdmin: async (data: {
+    company_name: string;
+    company_description?: string;
+    admin_username: string;
+    admin_email: string;
+    admin_password: string;
+  }) => {
+    const response = await api.post('/companies/with-admin', data);
+    return response.data;
+  },
+
+  // Create company only (existing method)
+  createCompany: async (name: string, description?: string) => {
+    const response = await api.post('/companies', { name, description });
+    return response.data;
+  },
+
+  // List companies
+  listCompanies: async () => {
+    const response = await api.get('/companies');
+    return response.data;
+  },
+
+  // Get company by ID
+  getCompany: async (companyId: number) => {
+    const response = await api.get(`/companies/${companyId}`);
+    return response.data;
+  },
+
+  // Update company
+  updateCompany: async (companyId: number, updates: {
+    name?: string;
+    description?: string;
     is_active?: boolean;
-  }): Promise<User[]> => {
-    try {
-      const queryParams = new URLSearchParams();
-      if (params?.skip) queryParams.append('skip', params.skip.toString());
-      if (params?.limit) queryParams.append('limit', params.limit.toString());
-      if (params?.company_id) queryParams.append('company_id', params.company_id.toString());
-      if (params?.role) queryParams.append('role', params.role);
-      if (params?.is_active !== undefined) queryParams.append('is_active', params.is_active.toString());
-
-      const url = `/api/v1/users${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-      const response: AxiosResponse<User[]> = await api.get(url);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      throw new Error(handleApiError(error as AxiosError));
-    }
+  }) => {
+    const response = await api.put(`/companies/${companyId}`, updates);
+    return response.data;
   },
 
-  getUser: async (userId: string | number): Promise<User> => {
-    try {
-      const response: AxiosResponse<User> = await api.get(`/api/v1/users/${userId}`);
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
-    }
+  // Delete company
+  deleteCompany: async (companyId: number) => {
+    const response = await api.delete(`/companies/${companyId}`);
+    return response.data;
   },
+};
 
-  createUser: async (data: {
+// Users API (also export as userAPI for backward compatibility)
+export const usersAPI = {
+  // Create user
+  createUser: async (userData: {
     email: string;
     username: string;
     password: string;
-    role?: string;
+    role: string;
     company_id?: number;
     is_active?: boolean;
+  }) => {
+    try {
+      const response = await api.post('/users', userData);
+      return response.data;
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Failed to create user';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // List users with enhanced error handling
+  listUsers: async (params?: {
+    skip?: number;
+    limit?: number;
+    role?: string;
+    is_active?: boolean;
+  }) => {
+    try {
+      const response = await api.get('/users', { params });
+      
+      // Ensure the response data is an array
+      if (!Array.isArray(response.data)) {
+        console.warn('API returned non-array response for users:', response.data);
+        return [];
+      }
+      
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to list users:', error);
+      const errorMessage = error.response?.data?.detail || 'Failed to fetch users';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Get user by ID
+  getUser: async (userId: number) => {
+    try {
+      const response = await api.get(`/users/${userId}`);
+      return response.data;
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Failed to fetch user';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Update user
+  updateUser: async (userId: number, userData: any) => {
+    try {
+      const response = await api.put(`/users/${userId}`, userData);
+      return response.data;
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Failed to update user';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Delete user (soft delete)
+  deleteUser: async (userId: number) => {
+    try {
+      const response = await api.delete(`/users/${userId}`);
+      return response.data;
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Failed to delete user';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Activate user
+  activateUser: async (userId: number) => {
+    try {
+      const response = await api.post(`/users/${userId}/activate`);
+      return response.data;
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Failed to activate user';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Get current user profile
+  getCurrentProfile: async () => {
+    try {
+      const response = await api.get('/users/me');
+      return response.data;
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Failed to fetch profile';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Update current user profile
+  updateProfile: async (updates: {
+    email?: string;
+    username?: string;
+    password?: string;
     full_name?: string;
     phone_number?: string;
     department?: string;
-    can_assign_tasks?: boolean;
-  }): Promise<User> => {
+  }) => {
     try {
-      const userData = {
-        email: data.email,
-        username: data.username,
-        password: data.password,
-        role: data.role || 'user',
-        company_id: data.company_id,
-        is_active: data.is_active !== undefined ? data.is_active : true,
-        full_name: data.full_name,
-        phone_number: data.phone_number,
-        department: data.department,
-        can_assign_tasks: data.can_assign_tasks || false,
+      const response = await api.put('/profile', updates);
+      return response.data;
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Failed to update profile';
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Get users statistics for dashboard
+  getUserStats: async () => {
+    try {
+      const users = await usersAPI.listUsers({ limit: 1000 });
+      
+      const stats = {
+        total: users.length,
+        active: users.filter(u => u.is_active).length,
+        inactive: users.filter(u => !u.is_active).length,
+        admins: users.filter(u => u.role === 'admin').length,
+        regularUsers: users.filter(u => u.role === 'user').length,
+        superAdmins: users.filter(u => u.role === 'super_admin').length,
       };
-
-      const response: AxiosResponse<User> = await api.post('/api/v1/users', userData);
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
-    }
-  },
-
-  updateUser: async (
-    userId: string | number,
-    updates: Partial<{
-      email: string;
-      username: string;
-      password: string;
-      role: string;
-      company_id: number;
-      is_active: boolean;
-      full_name: string;
-      phone_number: string;
-      department: string;
-      can_assign_tasks: boolean;
-      canAssignTasks: boolean; // Support both naming conventions
-      isActive: boolean; // Support both naming conventions
-    }>
-  ): Promise<User> => {
-    try {
-      // Convert camelCase to snake_case for backend compatibility
-      const backendUpdates: any = { ...updates };
       
-      if ('canAssignTasks' in updates) {
-        backendUpdates.can_assign_tasks = updates.canAssignTasks;
-        delete backendUpdates.canAssignTasks;
-      }
-      
-      if ('isActive' in updates) {
-        backendUpdates.is_active = updates.isActive;
-        delete backendUpdates.isActive;
-      }
-
-      const response: AxiosResponse<User> = await api.put(`/api/v1/users/${userId}`, backendUpdates);
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
-    }
-  },
-
-  deleteUser: async (userId: string | number): Promise<{ message: string }> => {
-    try {
-      const response: AxiosResponse<{ message: string }> = await api.delete(`/api/v1/users/${userId}`);
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
-    }
-  },
-
-  activateUser: async (userId: string | number): Promise<{ message: string }> => {
-    try {
-      const response: AxiosResponse<{ message: string }> = await api.post(`/api/v1/users/${userId}/activate`);
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
-    }
-  },
-
-  // Profile management
-  getProfile: async (): Promise<User> => {
-    try {
-      const response: AxiosResponse<User> = await api.get('/api/v1/profile');
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
-    }
-  },
-
-  updateProfile: async (updates: Partial<{
-    email: string;
-    username: string;
-    password: string;
-    full_name: string;
-    phone_number: string;
-    department: string;
-  }>): Promise<User> => {
-    try {
-      const response: AxiosResponse<User> = await api.put('/api/v1/profile', updates);
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
+      return stats;
+    } catch (error: any) {
+      console.error('Failed to get user stats:', error);
+      return {
+        total: 0,
+        active: 0,
+        inactive: 0,
+        admins: 0,
+        regularUsers: 0,
+        superAdmins: 0,
+      };
     }
   },
 };
 
-// ✅ Company API - Updated for your endpoints
-export const companyAPI = {
-  getCompanies: async (): Promise<Company[]> => {
-    try {
-      const response: AxiosResponse<Company[]> = await api.get('/api/v1/companies');
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
-    }
-  },
+// Export userAPI as an alias for backward compatibility
+export const userAPI = usersAPI;
 
-  getCompany: async (companyId: number): Promise<Company> => {
-    try {
-      const response: AxiosResponse<Company> = await api.get(`/api/v1/companies/${companyId}`);
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
-    }
-  },
-
-  createCompany: async (data: {
-    name: string;
-    description?: string;
-  }): Promise<Company> => {
-    try {
-      const params = new URLSearchParams();
-      params.append('name', data.name);
-      if (data.description) params.append('description', data.description);
-
-      const response: AxiosResponse<Company> = await api.post(`/api/v1/companies?${params.toString()}`);
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
-    }
-  },
-
-  updateCompany: async (
-    companyId: number,
-    updates: Partial<{ name: string; description: string; is_active: boolean }>
-  ): Promise<Company> => {
-    try {
-      const response: AxiosResponse<Company> = await api.put(`/api/v1/companies/${companyId}`, updates);
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
-    }
-  },
-
-  deleteCompany: async (companyId: number): Promise<void> => {
-    try {
-      await api.delete(`/api/v1/companies/${companyId}`);
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
-    }
-  },
-};
-
-// ✅ Task API - Enhanced for better error handling
+// Task API
 export const taskAPI = {
-  getTasks: async (): Promise<Task[]> => {
+  // Get all tasks
+  getTasks: async (params?: {
+    skip?: number;
+    limit?: number;
+    status?: string;
+    assigned_to_id?: number;
+  }) => {
     try {
-      const response: AxiosResponse<Task[]> = await api.get('/api/v1/tasks');
-      return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
+      const response = await api.get('/tasks', { params });
+      return Array.isArray(response.data) ? response.data : [];
+    } catch (error: any) {
+      console.error('Failed to fetch tasks:', error);
+      throw new Error(error.response?.data?.detail || 'Failed to fetch tasks');
     }
   },
 
-  getTask: async (taskId: string | number): Promise<Task> => {
+  // Get task by ID
+  getTask: async (taskId: number) => {
     try {
-      const response: AxiosResponse<Task> = await api.get(`/api/v1/tasks/${taskId}`);
+      const response = await api.get(`/tasks/${taskId}`);
       return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
+    } catch (error: any) {
+      throw new Error(error.response?.data?.detail || 'Failed to fetch task');
     }
   },
 
+  // Create task
   createTask: async (taskData: {
     title: string;
     description?: string;
     assigned_to_id: number;
     due_date?: string;
-  }): Promise<Task> => {
+    priority?: 'low' | 'medium' | 'high' | 'urgent';
+  }) => {
     try {
-      const params = new URLSearchParams();
-      params.append('title', taskData.title);
-      if (taskData.description) params.append('description', taskData.description);
-      params.append('assigned_to_id', taskData.assigned_to_id.toString());
-      if (taskData.due_date) params.append('due_date', taskData.due_date);
-
-      const response: AxiosResponse<Task> = await api.post(`/api/v1/tasks?${params.toString()}`);
+      const response = await api.post('/tasks', taskData);
       return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
+    } catch (error: any) {
+      throw new Error(error.response?.data?.detail || 'Failed to create task');
     }
   },
 
-  updateTask: async (
-    taskId: string | number,
-    updates: Partial<{
-      title: string;
-      description: string;
-      status: string;
-      assigned_to_id: number;
-      due_date: string;
-    }>
-  ): Promise<Task> => {
+  // Update task
+  updateTask: async (taskId: number, updates: {
+    title?: string;
+    description?: string;
+    status?: 'pending' | 'in_progress' | 'completed';
+    due_date?: string;
+    priority?: 'low' | 'medium' | 'high' | 'urgent';
+  }) => {
     try {
-      const response: AxiosResponse<Task> = await api.put(`/api/v1/tasks/${taskId}`, updates);
+      const response = await api.put(`/tasks/${taskId}`, updates);
       return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
+    } catch (error: any) {
+      throw new Error(error.response?.data?.detail || 'Failed to update task');
     }
   },
 
-  updateTaskStatus: async (taskId: string | number, status: string): Promise<Task> => {
+  // Update task status
+  updateTaskStatus: async (taskId: number, status: 'pending' | 'in_progress' | 'completed') => {
     try {
-      const response = await api.put(`/api/v1/tasks/${taskId}`, { status });
+      const response = await api.put(`/tasks/${taskId}`, { status });
       return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
+    } catch (error: any) {
+      throw new Error(error.response?.data?.detail || 'Failed to update task status');
     }
   },
 
-  deleteTask: async (taskId: string | number): Promise<void> => {
+  // Delete task
+  deleteTask: async (taskId: number) => {
     try {
-      await api.delete(`/api/v1/tasks/${taskId}`);
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
+      const response = await api.delete(`/tasks/${taskId}`);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.detail || 'Failed to delete task');
     }
   },
 
-  searchTasks: async (query: string, status?: string): Promise<Task[]> => {
-    // This endpoint doesn't exist in your backend yet
-    console.warn('Task search not implemented in backend yet');
-    return [];
+  // Get task statistics
+  getTaskStats: async () => {
+    try {
+      const tasks = await taskAPI.getTasks({ limit: 1000 });
+      
+      const now = new Date();
+      const stats = {
+        total: tasks.length,
+        pending: tasks.filter(t => t.status === 'pending').length,
+        inProgress: tasks.filter(t => t.status === 'in_progress').length,
+        completed: tasks.filter(t => t.status === 'completed').length,
+        overdue: tasks.filter(t => {
+          if (!t.due_date || t.status === 'completed') return false;
+          return new Date(t.due_date) < now;
+        }).length,
+        highPriority: tasks.filter(t => t.priority === 'high' || t.priority === 'urgent').length,
+      };
+      
+      return stats;
+    } catch (error: any) {
+      console.error('Failed to get task stats:', error);
+      return {
+        total: 0,
+        pending: 0,
+        inProgress: 0,
+        completed: 0,
+        overdue: 0,
+        highPriority: 0,
+      };
+    }
   },
 };
 
-// ✅ Dashboard API - Placeholder for future implementation
+// Notification API
+export const notificationAPI = {
+  // Get notifications for current user
+  getNotifications: async (params?: {
+    skip?: number;
+    limit?: number;
+    is_read?: boolean;
+  }) => {
+    try {
+      const response = await api.get('/notifications', { params });
+      return Array.isArray(response.data) ? response.data : [];
+    } catch (error: any) {
+      console.error('Failed to fetch notifications:', error);
+      return [];
+    }
+  },
+
+  // Mark notification as read
+  markAsRead: async (notificationId: number) => {
+    try {
+      const response = await api.put(`/notifications/${notificationId}/read`);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.detail || 'Failed to mark notification as read');
+    }
+  },
+
+  // Mark all notifications as read
+  markAllAsRead: async () => {
+    try {
+      const response = await api.put('/notifications/mark-all-read');
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.detail || 'Failed to mark all notifications as read');
+    }
+  },
+};
+
+// Dashboard API for getting aggregated data
 export const dashboardAPI = {
-  getSuperAdminDashboard: async (): Promise<DashboardData> => {
-    console.warn('Dashboard endpoints not implemented in backend yet');
-    return {} as DashboardData;
+  // Get dashboard data for current user based on role
+  getDashboardData: async () => {
+    try {
+      const [userStats, taskStats, notifications] = await Promise.allSettled([
+        usersAPI.getUserStats(),
+        taskAPI.getTaskStats(),
+        notificationAPI.getNotifications({ limit: 10 }),
+      ]);
+
+      return {
+        userStats: userStats.status === 'fulfilled' ? userStats.value : null,
+        taskStats: taskStats.status === 'fulfilled' ? taskStats.value : null,
+        recentNotifications: notifications.status === 'fulfilled' ? notifications.value : [],
+      };
+    } catch (error: any) {
+      console.error('Failed to load dashboard data:', error);
+      throw new Error('Failed to load dashboard data');
+    }
   },
 
-  getAdminDashboard: async (): Promise<DashboardData> => {
-    console.warn('Dashboard endpoints not implemented in backend yet');
-    return {} as DashboardData;
-  },
+  // Get recent activities
+  getRecentActivities: async (limit: number = 10) => {
+    try {
+      // This would ideally be a dedicated endpoint, but for now we'll combine data
+      const [tasks, notifications] = await Promise.allSettled([
+        taskAPI.getTasks({ limit: 20 }),
+        notificationAPI.getNotifications({ limit: 10 }),
+      ]);
 
-  getUserDashboard: async (): Promise<DashboardData> => {
-    console.warn('Dashboard endpoints not implemented in backend yet');
-    return {} as DashboardData;
+      const activities = [];
+
+      // Add recent task activities
+      if (tasks.status === 'fulfilled' && Array.isArray(tasks.value)) {
+        const recentTasks = tasks.value
+          .filter(task => task.created_at)
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 5);
+
+        recentTasks.forEach(task => {
+          activities.push({
+            id: `task-${task.id}`,
+            type: 'task_created',
+            message: `New task "${task.title}" was created`,
+            timestamp: new Date(task.created_at),
+            task_id: task.id,
+          });
+        });
+      }
+
+      // Add notification activities
+      if (notifications.status === 'fulfilled' && Array.isArray(notifications.value)) {
+        notifications.value.forEach(notif => {
+          activities.push({
+            id: `notification-${notif.id}`,
+            type: 'notification',
+            message: notif.message,
+            timestamp: new Date(notif.created_at),
+            notification_id: notif.id,
+          });
+        });
+      }
+
+      // Sort by timestamp and limit
+      activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+      return activities.slice(0, limit);
+
+    } catch (error: any) {
+      console.error('Failed to get recent activities:', error);
+      return [];
+    }
   },
 };
 
-// ✅ Health Check
+// Health check
 export const healthAPI = {
-  checkHealth: async (): Promise<{ status: string }> => {
+  checkHealth: async () => {
     try {
       const response = await api.get('/health');
       return response.data;
-    } catch (error) {
-      throw new Error(handleApiError(error as AxiosError));
+    } catch (error: any) {
+      throw new Error('Health check failed');
     }
   },
 };
 
-// ✅ Enhanced Error Utility
-export const handleApiError = (error: AxiosError): string => {
-  const response = error.response;
-  
-  if (response?.data) {
-    const data = response.data as ApiError;
-    if (data.detail) {
-      // Handle validation errors
-      if (typeof data.detail === 'string') {
-        return data.detail;
-      }
-      // Handle array of validation errors
-      if (Array.isArray(data.detail)) {
-        return data.detail.map((err: any) => err.msg || err.message || err).join(', ');
-      }
+// Error handling utility
+export const handleApiError = (error: any): string => {
+  if (error.response?.data?.detail) {
+    // Handle FastAPI validation errors
+    if (typeof error.response.data.detail === 'string') {
+      return error.response.data.detail;
     }
-    return 'Request failed';
+    
+    // Handle array of validation errors
+    if (Array.isArray(error.response.data.detail)) {
+      return error.response.data.detail
+        .map((err: any) => err.msg || err.message || String(err))
+        .join(', ');
+    }
   }
   
-  if (error.request) {
-    return 'Server did not respond. Check your connection.';
+  if (error.response?.data?.message) {
+    return error.response.data.message;
   }
   
-  return error.message || 'Something went wrong.';
+  if (error.message) {
+    return error.message;
+  }
+  
+  return 'An unexpected error occurred';
 };
 
 export default api;

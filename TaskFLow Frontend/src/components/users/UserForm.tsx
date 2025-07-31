@@ -1,246 +1,346 @@
 // src/components/users/UserForm.tsx
-
-import React, { useState, useEffect } from "react";
-import { Mail, User, Shield, KeyRound } from "lucide-react";
-import { Button } from "../common/Button";
-import { userAPI, companyAPI } from "../../services/api";
-import { User as UserType, Company } from "../../types";
-import { useAuth } from "../../contexts/AuthContext"; // Import useAuth
+import React, { useState, useEffect } from 'react';
+import { User, UserRole } from '../../types';
+import { usersAPI, companyAPI } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
+import { Button } from '../common/Button';
+import { Mail, User as UserIcon, KeyRound, Building, Shield } from 'lucide-react';
 
 interface UserFormProps {
-  currentUser?: UserType; // if provided, form can be prefilled for edit; for now, only create is handled
-  onSuccess?: () => void; // callback for parent to update user list etc
-  onClose: () => void; // callback for closing the modal/dialog
+  user?: User;
+  onSuccess?: () => void;
+  onClose: () => void;
+  mode?: 'create' | 'edit';
 }
 
-export const UserForm: React.FC<UserFormProps> = ({ currentUser, onSuccess, onClose }) => {
-  const { user: loggedInUser } = useAuth(); // Get the logged-in user from AuthContext
+interface Company {
+  id: number;
+  name: string;
+  description?: string;
+}
 
-  // Determine allowed roles based on logged-in user's role
-  const ALLOWED_ROLES = loggedInUser?.role === 'super_admin'
-    ? [{ value: "admin", label: "Admin" }] // Super admin can only create Admin
-    : [
-        { value: "user", label: "User" },
-        { value: "admin", label: "Admin" }
-      ] as const;
+export const UserForm: React.FC<UserFormProps> = ({ 
+  user, 
+  onSuccess, 
+  onClose, 
+  mode = 'create' 
+}) => {
+  const { user: currentUser } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // "Default" effective user - useful for required company, role during initial company_id set
-  const effectiveUser = currentUser || {
-    id: '1',
-    name: 'Default Admin',
-    email: 'admin@test.com',
-    role: 'super_admin' as const, // This role is for the 'default' and not necessarily the loggedInUser
-    company_id: 1,
-    username: 'defaultadmin',
-    isActive: true,
-  };
+  // For admins, always use their company_id. For super_admins, allow selection.
+  const defaultCompanyId = currentUser?.role === 'admin' 
+    ? currentUser.company_id 
+    : user?.company_id || '';
 
-  // Form state: match backend field names!
   const [formData, setFormData] = useState({
-    username: "",
-    email: "",
-    password: "",
-    // Default role: if super_admin is logged in, default to "admin", otherwise "user"
-    role: loggedInUser?.role === 'super_admin' ? "admin" : "user" as UserType["role"],
-    company_id: effectiveUser.role === "admin"
-      ? String(effectiveUser.company_id || "1")
-      : "1",
-    is_active: true,
+    email: user?.email || '',
+    username: user?.username || '',
+    password: '',
+    role: user?.role || 'user',
+    company_id: defaultCompanyId,
+    is_active: user?.is_active ?? true,
   });
 
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Fetch companies initially (for dropdown)
+  // Load companies when component mounts (only for super admins)
   useEffect(() => {
-    (async () => {
+    const loadCompanies = async () => {
       try {
-        const companiesData = await companyAPI.getCompanies();
+        const companiesData = await companyAPI.listCompanies();
         setCompanies(companiesData);
-      } catch (err) {
-        // optionally log; don't show to user
-        setCompanies([]);
+      } catch (error) {
+        console.error('Failed to load companies:', error);
       }
-    })();
-  }, []);
+    };
 
-  const handleChange = <T extends keyof typeof formData>(
-    key: T,
-    value: typeof formData[T]
-  ) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
+    // Only super admins can select different companies
+    if (currentUser?.role === 'super_admin') {
+      loadCompanies();
+    }
+  }, [currentUser]);
+
+  const handleChange = (key: keyof typeof formData, value: string | number | boolean) => {
+    setFormData(prev => ({ ...prev, [key]: value }));
+    // Clear field-specific error when user starts typing
+    if (errors[key]) {
+      setErrors(prev => ({ ...prev, [key]: '' }));
+    }
   };
 
-  // Validation: require all fields
-  const canSubmit =
-    !!formData.username &&
-    !!formData.email &&
-    !!formData.password &&
-    !!formData.company_id;
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
 
-  // Handle form submit
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = 'Please enter a valid email address';
+    }
+
+    if (!formData.username.trim()) {
+      newErrors.username = 'Username is required';
+    } else if (formData.username.length < 3) {
+      newErrors.username = 'Username must be at least 3 characters';
+    }
+
+    if (mode === 'create' && !formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (formData.password && formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+
+    // Only super admins need to select a company
+    if (currentUser?.role === 'super_admin' && !formData.company_id) {
+      newErrors.company_id = 'Company is required';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-
-    if (!canSubmit) {
-      setError("Username, email, password, and company are required.");
+    
+    if (!validateForm()) {
       return;
     }
 
     setLoading(true);
     try {
-      await userAPI.createUser({
+      // Prepare user data
+      const userData = {
         email: formData.email,
         username: formData.username,
-        password: formData.password,
-        role: formData.role,
-        company_id: Number(formData.company_id),
+        ...(formData.password && { password: formData.password }),
+        role: formData.role as UserRole,
         is_active: formData.is_active,
-      });
+      };
+
+      // Set company_id based on user role
+      if (currentUser?.role === 'super_admin') {
+        // Super admin can assign to any company
+        if (formData.company_id) {
+          userData.company_id = Number(formData.company_id);
+        }
+      } else if (currentUser?.role === 'admin') {
+        // Admin can only create users in their own company
+        if (!currentUser.company_id) {
+          throw new Error('Admin user must have a company_id');
+        }
+        userData.company_id = currentUser.company_id;
+      }
+
+      console.log('Sending user data:', userData); // Debug log
+      console.log('Current user:', currentUser); // Debug log
+
+      if (mode === 'create') {
+        await usersAPI.createUser(userData);
+      } else if (user) {
+        await usersAPI.updateUser(user.id, userData);
+      }
 
       if (onSuccess) onSuccess();
       onClose();
-
-    } catch (err: any) {
-      let errorMessage = "Failed to create user.";
-      if (err?.response?.data?.detail) {
-        errorMessage = err.response.data.detail;
-      } else if (err?.message) {
-        errorMessage = err.message;
-      }
-      setError(errorMessage);
+    } catch (error: any) {
+      console.error('Failed to save user:', error);
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to save user';
+      setErrors({ general: errorMessage });
     } finally {
       setLoading(false);
     }
   };
 
-  const showCompanySelector = companies.length > 0;
+  const canEditRole = currentUser?.role === 'super_admin' || 
+    (currentUser?.role === 'admin' && formData.role !== 'super_admin');
+
+  const availableRoles = currentUser?.role === 'super_admin' 
+    ? ['admin', 'user'] 
+    : ['user'];
+
+  const showCompanySelect = currentUser?.role === 'super_admin' && companies.length > 0;
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            <User className="w-4 h-4 inline mr-1" />
-            Username
-          </label>
-          <input
-            type="text"
-            value={formData.username}
-            onChange={(e) => handleChange("username", e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Enter username"
-            required
-          />
+    <div className="max-w-md mx-auto">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-gray-900">
+          {mode === 'create' ? 'Create New User' : 'Edit User'}
+        </h2>
+        <p className="text-gray-600 mt-2">
+          {mode === 'create' ? 'Add a new user to the system' : 'Update user information'}
+        </p>
+        {currentUser?.role === 'admin' && (
+          <p className="text-sm text-blue-600 mt-1">
+            User will be added to your company: {currentUser.company?.name}
+          </p>
+        )}
+      </div>
+
+      {errors.general && (
+        <div className="mb-4 p-4 border border-red-300 rounded-lg bg-red-50">
+          <p className="text-red-800 text-sm">{errors.general}</p>
         </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Email */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            <Mail className="w-4 h-4 inline mr-1" />
-            Email Address
+            <Mail className="w-4 h-4 inline mr-2" />
+            Email Address *
           </label>
           <input
             type="email"
             value={formData.email}
-            onChange={(e) => handleChange("email", e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            onChange={(e) => handleChange('email', e.target.value)}
+            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              errors.email ? 'border-red-300 bg-red-50' : 'border-gray-300'
+            }`}
             placeholder="Enter email address"
-            required
+            disabled={loading}
           />
+          {errors.email && (
+            <p className="text-red-600 text-sm mt-1">{errors.email}</p>
+          )}
         </div>
-      </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          <KeyRound className="w-4 h-4 inline mr-1" />
-          Password
-        </label>
-        <input
-          type="password"
-          autoComplete="new-password"
-          value={formData.password}
-          onChange={(e) => handleChange("password", e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Set password"
-          required
-        />
-      </div>
+        {/* Username */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            <UserIcon className="w-4 h-4 inline mr-2" />
+            Username *
+          </label>
+          <input
+            type="text"
+            value={formData.username}
+            onChange={(e) => handleChange('username', e.target.value)}
+            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              errors.username ? 'border-red-300 bg-red-50' : 'border-gray-300'
+            }`}
+            placeholder="Enter username"
+            disabled={loading}
+          />
+          {errors.username && (
+            <p className="text-red-600 text-sm mt-1">{errors.username}</p>
+          )}
+        </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          <Shield className="w-4 h-4 inline mr-1" />
-          Role
-        </label>
-        <select
-          value={formData.role}
-          onChange={(e) => handleChange("role", e.target.value as UserType["role"])}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          disabled={loggedInUser?.role === 'super_admin'} // Disable if super admin
-        >
-          {ALLOWED_ROLES.map((role) => (
-            <option key={role.value} value={role.value}>
-              {role.label}
-            </option>
-          ))}
-        </select>
-      </div>
+        {/* Password */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            <KeyRound className="w-4 h-4 inline mr-2" />
+            Password {mode === 'create' ? '*' : '(leave blank to keep current)'}
+          </label>
+          <input
+            type="password"
+            value={formData.password}
+            onChange={(e) => handleChange('password', e.target.value)}
+            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              errors.password ? 'border-red-300 bg-red-50' : 'border-gray-300'
+            }`}
+            placeholder={mode === 'create' ? 'Enter password' : 'Enter new password'}
+            disabled={loading}
+            autoComplete="new-password"
+          />
+          {errors.password && (
+            <p className="text-red-600 text-sm mt-1">{errors.password}</p>
+          )}
+        </div>
 
-      {/* Company Dropdown */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Company *
-        </label>
-        {showCompanySelector ? (
-          <select
-            value={formData.company_id}
-            onChange={(e) => handleChange("company_id", e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            required
-          >
-            <option value="">Select company</option>
-            {companies.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <div className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50">
-            Loading companies...
+        {/* Role */}
+        {canEditRole && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Shield className="w-4 h-4 inline mr-2" />
+              Role
+            </label>
+            <select
+              value={formData.role}
+              onChange={(e) => handleChange('role', e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={loading}
+            >
+              {availableRoles.map(role => (
+                <option key={role} value={role}>
+                  {role.charAt(0).toUpperCase() + role.slice(1)}
+                </option>
+              ))}
+            </select>
           </div>
         )}
-      </div>
 
-      <div className="space-y-4">
-        <div className="flex items-center space-x-3">
+        {/* Company - Only show for super admins */}
+        {showCompanySelect && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Building className="w-4 h-4 inline mr-2" />
+              Company *
+            </label>
+            <select
+              value={formData.company_id}
+              onChange={(e) => handleChange('company_id', e.target.value)}
+              className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.company_id ? 'border-red-300 bg-red-50' : 'border-gray-300'
+              }`}
+              disabled={loading}
+            >
+              <option value="">Select a company</option>
+              {companies.map(company => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
+            {errors.company_id && (
+              <p className="text-red-600 text-sm mt-1">{errors.company_id}</p>
+            )}
+          </div>
+        )}
+
+        {/* Active Status */}
+        <div className="flex items-center">
           <input
             type="checkbox"
-            id="isActive"
+            id="is_active"
             checked={formData.is_active}
-            onChange={(e) => handleChange("is_active", e.target.checked)}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            onChange={(e) => handleChange('is_active', e.target.checked)}
+            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            disabled={loading}
           />
-          <label htmlFor="isActive" className="text-sm text-gray-700">
+          <label htmlFor="is_active" className="ml-2 block text-sm text-gray-700">
             User is active
           </label>
         </div>
-      </div>
 
-      {error && (
-        <div className="text-red-600 text-sm p-2 border border-red-300 rounded bg-red-50">
-          {error}
+        {/* Submit Buttons */}
+        <div className="flex justify-end space-x-3 pt-6">
+          <Button 
+            type="button" 
+            variant="secondary" 
+            onClick={onClose}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+          <Button 
+            type="submit" 
+            disabled={loading}
+            className="min-w-[120px]"
+          >
+            {loading ? (
+              <span className="flex items-center">
+                <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Saving...
+              </span>
+            ) : (
+              mode === 'create' ? 'Create User' : 'Update User'
+            )}
+          </Button>
         </div>
-      )}
-
-      <div className="flex justify-end space-x-3">
-        <Button variant="secondary" onClick={onClose} type="button" disabled={loading}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={loading || !canSubmit}>
-          {loading ? "Creating..." : "Create User"}
-        </Button>
-      </div>
-    </form>
+      </form>
+    </div>
   );
 };

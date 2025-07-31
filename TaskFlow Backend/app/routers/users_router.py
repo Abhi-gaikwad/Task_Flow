@@ -1,6 +1,6 @@
 # app/routers/users_router.py
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import Optional, List
 from app.auth import get_current_user, get_password_hash
 from app.models import User, Company, UserRole
@@ -22,18 +22,21 @@ def create_user(
         raise HTTPException(status_code=400, detail="Username already taken")
 
     # RBAC validation
-    if current_user.role == UserRole.SUPER_ADMIN:
-        # SUPER_ADMIN can only create ADMIN users
-        if user_data.role != UserRole.ADMIN:
-            raise HTTPException(status_code=403, detail="Super admin can only create admin users.")
-    elif current_user.role == UserRole.ADMIN:
+    if current_user.role == UserRole.ADMIN:
         if user_data.role == UserRole.SUPER_ADMIN:
             raise HTTPException(status_code=403, detail="Cannot create super admin users")
-        if user_data.company_id != current_user.company_id:
+        
+        # Force company_id to be the admin's company for admin users
+        if user_data.company_id is None:
+            user_data.company_id = current_user.company_id
+        elif user_data.company_id != current_user.company_id:
             raise HTTPException(status_code=403, detail="Can only create users in your own company")
-    else:
+            
+    elif current_user.role != UserRole.SUPER_ADMIN:
+         # Only admins and superadmins can create users.
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
+    # Validate company exists if company_id is provided
     if user_data.company_id:
         company = db.get(Company, user_data.company_id)
         if not company:
@@ -57,35 +60,52 @@ def create_user(
 def list_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    company_id: Optional[int] = Query(None),
     role: Optional[UserRole] = Query(None),
     is_active: Optional[bool] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    query = db.query(User)
+    """
+    List users based on the current user's role:
+    - Super Admin: sees all company admins
+    - Admin: sees all users in their company (excluding super admins)  
+    - User: sees only themselves
+    """
+    # Eagerly load company data to include it in the response
+    query = db.query(User).options(joinedload(User.company))
 
+    # Apply authorization filters based on the current user's role
     if current_user.role == UserRole.SUPER_ADMIN:
-        # Super admin sees ONLY admin users by default in the user list,
-        # regardless of the 'role' query parameter.
-        # This simplifies the frontend logic for the dashboard view.
-        query = query.filter(User.role == UserRole.ADMIN)
-        if company_id:
-            query = query.filter(User.company_id == company_id)
+        # Super Admins see all Company Admins by default (unless role filter is specified)
+        if role is None:
+            query = query.filter(User.role == UserRole.ADMIN)
+        else:
+            query = query.filter(User.role == role)
     elif current_user.role == UserRole.ADMIN:
+        # Company Admins see all users within their own company
         query = query.filter(User.company_id == current_user.company_id)
+        # Admins should not see Super Admins in their user list
+        query = query.filter(User.role != UserRole.SUPER_ADMIN)
     else:
+        # Regular users can only see their own profile
         query = query.filter(User.id == current_user.id)
 
-    # Apply additional filters only if the user is NOT a SUPER_ADMIN
-    # or if the SUPER_ADMIN wants to further narrow down the ADMIN list
-    if current_user.role != UserRole.SUPER_ADMIN and role: # Apply role filter only if not super_admin
+    # Apply optional filters from the query parameters
+    if role and current_user.role == UserRole.SUPER_ADMIN:
+        # Only super admin can filter by role (already handled above)
+        pass
+    elif role and current_user.role != UserRole.SUPER_ADMIN:
+        # Non-super admins can still filter by role within their scope
         query = query.filter(User.role == role)
-
+        
     if is_active is not None:
         query = query.filter(User.is_active == is_active)
 
-    return query.offset(skip).limit(limit).all()
+    # Order by creation date (newest first) for better UX
+    query = query.order_by(User.created_at.desc())
+
+    users = query.offset(skip).limit(limit).all()
+    return users
 
 
 @router.get("/users/{user_id}", response_model=UserResponse)
@@ -94,20 +114,26 @@ def get_user(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    user = db.get(User, user_id)
+    user = db.query(User).options(joinedload(User.company)).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Authorization check
     if current_user.role == UserRole.SUPER_ADMIN:
+        # Super admin can view any user
         pass
     elif current_user.role == UserRole.ADMIN:
+        # Admin can only view users in their company
         if user.company_id != current_user.company_id:
-            raise HTTPException(status_code=403, detail="Access denied")
-    else:
-        if user.id != current_user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
+            raise HTTPException(status_code=403, detail="Access denied: cannot view users outside your company.")
+        # Admin cannot view super admin users
+        if user.role == UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="Access denied: cannot view super admin users.")
+    elif user.id != current_user.id:
+        # Regular users can only view themselves
+        raise HTTPException(status_code=403, detail="Access denied: can only view your own profile.")
 
-    return UserResponse.model_validate(user)
+    return user
 
 
 @router.put("/users/{user_id}", response_model=UserResponse)
@@ -117,38 +143,44 @@ def update_user(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    user = db.get(User, user_id)
+    user = db.query(User).options(joinedload(User.company)).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Authorization and field filtering based on role
     if current_user.role == UserRole.SUPER_ADMIN:
-        # Super admin can update all fields for any user, but enforce role change restriction
-        if user_update.role is not None and user_update.role != user.role and user_update.role != UserRole.ADMIN:
-            raise HTTPException(status_code=403, detail="Super admin can only change roles to 'admin' or keep current role.")
+        # Super admin can modify company admins
+        if user.role == UserRole.SUPER_ADMIN and user.id != current_user.id:
+            raise HTTPException(status_code=403, detail="Cannot modify other super admin users")
         allowed_fields = user_update.dict(exclude_unset=True)
     elif current_user.role == UserRole.ADMIN:
+        # Admin can modify users in their company
         if user.company_id != current_user.company_id:
             raise HTTPException(status_code=403, detail="Can only update users in your company")
-        if user.role == UserRole.SUPER_ADMIN:
-            raise HTTPException(status_code=403, detail="Cannot update super admin users")
-        if user_update.role == UserRole.SUPER_ADMIN:
-            raise HTTPException(status_code=403, detail="Cannot promote users to super admin")
+        if user.role == UserRole.SUPER_ADMIN or user_update.role == UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="Cannot modify super admin users")
         allowed_fields = user_update.dict(exclude_unset=True)
     else:
+        # Regular users can only modify themselves and limited fields
         if user.id != current_user.id:
             raise HTTPException(status_code=403, detail="Can only update your own profile")
-        allowed_fields = {k: v for k, v in user_update.dict(exclude_unset=True).items() if k in ['email', 'username', 'password']}
+        allowed_fields = {k: v for k, v in user_update.dict(exclude_unset=True).items() 
+                         if k in ['email', 'username', 'password']}
 
-    if 'email' in allowed_fields:
-        existing = db.query(User).filter(User.email == allowed_fields['email'], User.id != user_id).first()
-        if existing:
-            raise HTTPException(status_code=400, detail="Email already registered")
+    # Validate unique constraints
+    if 'email' in allowed_fields and db.query(User).filter(
+        User.email == allowed_fields['email'], 
+        User.id != user_id
+    ).first():
+        raise HTTPException(status_code=400, detail="Email already registered")
 
-    if 'username' in allowed_fields:
-        existing = db.query(User).filter(User.username == allowed_fields['username'], User.id != user_id).first()
-        if existing:
-            raise HTTPException(status_code=400, detail="Username already taken")
+    if 'username' in allowed_fields and db.query(User).filter(
+        User.username == allowed_fields['username'], 
+        User.id != user_id
+    ).first():
+        raise HTTPException(status_code=400, detail="Username already taken")
 
+    # Apply updates
     for field, value in allowed_fields.items():
         if field == 'password' and value:
             setattr(user, 'hashed_password', get_password_hash(value))
@@ -171,13 +203,15 @@ def delete_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     if user.id == current_user.id:
-        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+        raise HTTPException(status_code=400, detail="You cannot delete your own account.")
 
+    # Authorization check
     if current_user.role == UserRole.SUPER_ADMIN:
-        # Super admin can delete anyone, but if it's a super_admin role trying to delete another super_admin,
-        # we might want to prevent that or require extra confirmation. For now, allow but consider.
-        pass
+        # Super admin can deactivate company admins but not other super admins
+        if user.role == UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="Cannot deactivate other super admin users")
     elif current_user.role == UserRole.ADMIN:
+        # Admin can deactivate users in their company
         if user.company_id != current_user.company_id:
             raise HTTPException(status_code=403, detail="Can only delete users in your company")
         if user.role == UserRole.SUPER_ADMIN:
@@ -185,7 +219,8 @@ def delete_user(
     else:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
-    user.is_active = False  # Soft delete
+    # Soft delete
+    user.is_active = False
     db.commit()
 
     return {"message": f"User {user.username} has been deactivated"}
@@ -201,10 +236,13 @@ def activate_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Authorization check
     if current_user.role == UserRole.SUPER_ADMIN:
-        # Super admin can activate anyone, but prevent changing super_admin role status if desired.
-        pass
+        # Super admin can activate company admins but not other super admins
+        if user.role == UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="Cannot activate other super admin users")
     elif current_user.role == UserRole.ADMIN:
+        # Admin can activate users in their company
         if user.company_id != current_user.company_id:
             raise HTTPException(status_code=403, detail="Access denied")
         if user.role == UserRole.SUPER_ADMIN:

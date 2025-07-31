@@ -1,38 +1,71 @@
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, EmailStr
 from app.models import UserRole, TaskStatus, TaskPriority, NotificationType
 
 # -----------------
+# COMPANY SCHEMAS
+# -----------------
+
+class CompanyBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class CompanyCreate(CompanyBase):
+    pass
+
+class CompanyResponse(CompanyBase):
+    id: int
+    is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# -----------------
 # USER SCHEMAS
 # -----------------
 
-class UserCreate(BaseModel):
+class UserBase(BaseModel):
     email: EmailStr
     username: str
+    is_active: bool = True
+
+class UserCreate(UserBase):
     password: str
     role: UserRole
     company_id: Optional[int] = None
-    is_active: bool = True
 
 class UserUpdate(BaseModel):
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     username: Optional[str] = None
     password: Optional[str] = None
     role: Optional[UserRole] = None
     company_id: Optional[int] = None
     is_active: Optional[bool] = None
 
-class UserResponse(BaseModel):
+class UserResponse(UserBase):
     id: int
-    email: str
-    username: str
     role: UserRole
-    company_id: Optional[int]
-    is_active: bool
     created_at: datetime
+    company: Optional[CompanyResponse] = None  # Added company info for hierarchy
 
-    model_config = {"from_attributes": True}  # Pydantic v2, for ORM mode (use 'orm_mode = True' for v1)
+    model_config = {"from_attributes": True}
+
+# -----------------
+# COMPANY WITH ADMIN (for superadmin creation)
+# -----------------
+
+class CompanyWithAdminCreate(BaseModel):
+    """
+    Schema for the superadmin to create a company and its admin in one request.
+    """
+    company_name: str
+    company_description: Optional[str] = None
+    admin_email: EmailStr
+    admin_username: str
+    admin_password: str
+
 
 # -----------------
 # TASK SCHEMAS

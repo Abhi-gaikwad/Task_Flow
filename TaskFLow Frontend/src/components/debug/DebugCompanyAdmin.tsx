@@ -40,6 +40,7 @@ const ROUTE_ACCESS: Record<string, string[]> = {
   '/companies': ['super_admin'],
 };
 
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
@@ -138,7 +139,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   );
 };
 
-// --- CUSTOM HOOKS FOR PERMISSIONS ---
+// --- FIX: RE-ADDING THE EXPORTED CUSTOM HOOKS ---
 export const usePermissions = () => {
   const { user, hasPermission } = useAuth();
   return {

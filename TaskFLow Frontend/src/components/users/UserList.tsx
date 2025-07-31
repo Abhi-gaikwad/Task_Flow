@@ -1,167 +1,121 @@
 // UserList.tsx
-import React, { useState, useEffect } from 'react';
-import { Search, UserPlus, Shield, User, Edit, Trash2, UserCheck, UserX, RefreshCw } from 'lucide-react';
-import { useApp } from '../../contexts/AppContext';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Search, UserPlus, Shield, User, Edit, Trash2, UserCheck, UserX, RefreshCw, Building, Mail } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { transformBackendUser } from '../../utils/transform';
 import { Button } from '../common/Button';
 import { Modal } from '../common/Modal';
 import { UserForm } from './UserForm';
+import { CompanyAdminForm } from '../admin/CompanyAdminForm';
 import { User as UserType } from '../../types';
-import { userAPI } from '../../services/api';
+import { usersAPI } from '../../services/api';
 
 export const UserList: React.FC = () => {
-  const { users } = useApp();
-  const { user } = useAuth();
+  const { user: loggedInUser } = useAuth();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  // Initialize roleFilter based on user role
-  const [roleFilter, setRoleFilter] = useState<string>(user?.role === 'super_admin' ? 'admin' : 'all');
   const [error, setError] = useState<string | null>(null);
-  const [allUsers, setAllUsers] = useState<UserType[]>([]); // Initialize as empty, data fetched in useEffect
+  const [allUsers, setAllUsers] = useState<UserType[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Check if current user is admin or super_admin
-  const isAdminOrSuperAdmin = user?.role === 'admin' || user?.role === 'super_admin';
-  const isSuperAdmin = user?.role === 'super_admin';
+  const isSuperAdmin = loggedInUser?.role === 'super_admin';
+  const isAdmin = loggedInUser?.role === 'admin';
+  const isAdminOrSuperAdmin = isAdmin || isSuperAdmin;
 
-  // Function to fetch users with appropriate filters
   const fetchAndSetUsers = async () => {
     try {
       setLoading(true);
       setError(null);
-      let latestUsers;
-      if (isSuperAdmin) {
-        // Super admin always fetches only admin users from backend
-        latestUsers = await userAPI.getUsers({ role: 'admin' });
-      } else {
-        // Other roles can fetch all or apply their own filters
-        latestUsers = await userAPI.getUsers();
-      }
-      setAllUsers(latestUsers.map(transformBackendUser));
+      
+      // For super admin, we want to get company admins
+      // For regular admin, we want to get users in their company
+      const usersData = await usersAPI.listUsers({
+        limit: 100,
+        is_active: undefined,
+        // The backend will filter appropriately based on the logged-in user's role
+      });
+      
+      setAllUsers(usersData.map(transformBackendUser));
     } catch (err: any) {
       setError(err.message || 'Failed to load users.');
-      console.error('Error fetching users:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch users on component mount or when user role changes
   useEffect(() => {
-    fetchAndSetUsers();
-    // Reset role filter when user changes, important for super_admin
-    setRoleFilter(user?.role === 'super_admin' ? 'admin' : 'all');
-  }, [user]);
+    if (isAdminOrSuperAdmin) {
+      fetchAndSetUsers();
+    } else {
+      setLoading(false);
+    }
+  }, [loggedInUser]);
 
-
-  const filteredUsers = allUsers.filter(u => {
-    const matchesSearch = u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         u.email.toLowerCase().includes(searchTerm.toLowerCase());
-    // If super admin, roleFilter is effectively 'admin' and not changeable
-    // If not super admin, roleFilter works as selected in dropdown
-    const matchesRole = isSuperAdmin ? u.role === 'admin' : (roleFilter === 'all' || u.role === roleFilter);
-    return matchesSearch && matchesRole;
-  });
+  const filteredUsers = useMemo(() => {
+    if (!searchTerm) return allUsers;
+    return allUsers.filter(u => {
+      const lowerSearchTerm = searchTerm.toLowerCase();
+      const nameMatch = u.name.toLowerCase().includes(lowerSearchTerm);
+      const emailMatch = u.email.toLowerCase().includes(lowerSearchTerm);
+      const companyMatch = isSuperAdmin && u.company?.name.toLowerCase().includes(lowerSearchTerm);
+      return nameMatch || emailMatch || !!companyMatch;
+    });
+  }, [allUsers, searchTerm, isSuperAdmin]);
 
   const refreshUsers = async () => {
     setRefreshing(true);
-    await fetchAndSetUsers(); // Use the unified fetch function
+    await fetchAndSetUsers();
     setRefreshing(false);
   };
 
-  // Manual refresh handler
-  const handleManualRefresh = async () => {
-    await refreshUsers();
-  };
-
-  const handleUserAdded = async () => {
+  const handleSuccess = async () => {
     await refreshUsers();
     setIsCreateModalOpen(false);
-  };
-
-  const handleUserUpdated = async () => {
-    await refreshUsers();
     setIsEditModalOpen(false);
     setSelectedUser(null);
   };
 
-  const toggleTaskAssignPermission = async (userId: string, canAssignTasks: boolean) => {
-    if (!isAdminOrSuperAdmin) {
-      setError('Only administrators can modify task assignment permissions.');
+  const handleDeleteUser = async (userId: number) => {
+    if (!window.confirm('Are you sure you want to deactivate this user?')) {
       return;
     }
 
     try {
-      const updatedUser = await userAPI.updateUser(userId, { can_assign_tasks: canAssignTasks });
-      setAllUsers(prev => prev.map(u => u.id === userId ? transformBackendUser(updatedUser) : u));
+      await usersAPI.deleteUser(userId);
+      await refreshUsers();
     } catch (err: any) {
-      setError(err.message || 'Failed to update user permissions.');
+      console.error('Failed to delete user:', err);
+      setError('Failed to deactivate user: ' + (err.response?.data?.detail || err.message));
     }
   };
 
-  const toggleUserActive = async (userId: string, isActive: boolean) => {
-    if (!isAdminOrSuperAdmin) {
-      setError('Only administrators can activate/deactivate users.');
-      return;
-    }
-
+  const handleActivateUser = async (userId: number) => {
     try {
-      const updatedUser = await userAPI.updateUser(userId, { is_active: isActive });
-      setAllUsers(prev => prev.map(u => u.id === userId ? transformBackendUser(updatedUser) : u));
+      await usersAPI.activateUser(userId);
+      await refreshUsers();
     } catch (err: any) {
-      setError(err.message || 'Failed to update user status.');
+      console.error('Failed to activate user:', err);
+      setError('Failed to activate user: ' + (err.response?.data?.detail || err.message));
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!isAdminOrSuperAdmin) {
-      setError('Only administrators can delete users.');
-      return;
-    }
-
-    if (userId === user?.id) {
-      setError('You cannot delete your own account.');
-      return;
-    }
-
-    if (window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-      try {
-        await userAPI.deleteUser(userId);
-        await refreshUsers();
-      } catch (err: any) {
-        setError(err.message || 'Failed to delete user.');
-      }
-    }
-  };
-
-  const handleEditUser = (userToEdit: UserType) => {
-    if (!isAdminOrSuperAdmin) {
-      setError('Only administrators can edit users.');
-      return;
-    }
-    setSelectedUser(userToEdit);
+  const handleEditUser = (user: UserType) => {
+    setSelectedUser(user);
     setIsEditModalOpen(true);
-  };
-
-  // Check if user can be modified (prevent super_admin from being modified by regular admin)
-  const canModifyUser = (targetUser: UserType) => {
-    if (isSuperAdmin) return true; // Super admin can modify anyone
-    if (user?.role === 'admin' && targetUser.role === 'super_admin') return false; // Admin cannot modify super_admin
-    return isAdminOrSuperAdmin;
   };
 
   if (!isAdminOrSuperAdmin) {
     return (
       <div className="text-center py-12">
+        <Shield className="w-16 h-16 text-gray-300 mx-auto mb-4" />
         <p className="text-gray-500">Access denied. Admin privileges required.</p>
       </div>
     );
   }
-
+  
   if (loading) {
     return (
       <div className="text-center py-12">
@@ -171,84 +125,112 @@ export const UserList: React.FC = () => {
     );
   }
 
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+        <div className="flex items-center">
+          <Shield className="w-6 h-6 text-red-600 mr-3" />
+          <div>
+            <h3 className="text-lg font-medium text-red-800">Error Loading Users</h3>
+            <p className="text-red-700 mt-1">{error}</p>
+            <button 
+              onClick={refreshUsers}
+              className="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/* Error display */}
-      {error && (
-        <div className="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded-lg flex items-center justify-between">
-          <span>{error}</span>
-          <button
-            onClick={() => setError(null)}
-            className="text-red-500 hover:text-red-700 font-bold text-lg leading-none"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            {isSuperAdmin ? "Company Admins" : "Users"}
+            {isSuperAdmin ? "Company Administrators" : "Team Members"}
           </h1>
           <p className="text-gray-600">
-            {isSuperAdmin ? "Manage administrative users for companies" : "Manage team members and permissions"}
+            {isSuperAdmin 
+              ? "Manage company administrators and create new companies." 
+              : "Manage team members and permissions."
+            }
           </p>
         </div>
         <div className="flex items-center space-x-3">
-          {/* Refresh Button */}
-          <Button
-            variant="secondary"
-            icon={RefreshCw}
-            onClick={handleManualRefresh}
-            disabled={refreshing}
+          <Button 
+            variant="secondary" 
+            icon={RefreshCw} 
+            onClick={refreshUsers} 
+            disabled={refreshing} 
             className={refreshing ? 'animate-spin' : ''}
           >
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </Button>
-
-          {/* Add User Button */}
           <Button icon={UserPlus} onClick={() => setIsCreateModalOpen(true)}>
-            {isSuperAdmin ? "Add Company Admin" : "Add User"}
+            {isSuperAdmin ? "New Company & Admin" : "Add User"}
           </Button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="bg-white rounded-xl shadow-lg border border-gray-200">
-        {/* Search and Filter */}
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder={isSuperAdmin ? "Search company admins..." : "Search users..."}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="flex items-center">
+            <div className="bg-blue-500 p-3 rounded-lg">
+              <User className="w-6 h-6 text-white" />
             </div>
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={isSuperAdmin} // Disable if super admin, as it's fixed to 'admin'
-            >
-              {isSuperAdmin ? (
-                <>
-                  <option value="admin">Admin</option>
-                </>
-              ) : (
-                <>
-                  <option value="all">All Roles</option>
-                  <option value="super_admin">Super Admin</option>
-                  <option value="admin">Admin</option>
-                  <option value="user">User</option>
-                </>
-              )}
-            </select>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">
+                Total {isSuperAdmin ? 'Admins' : 'Users'}
+              </p>
+              <p className="text-2xl font-bold text-gray-900">{allUsers.length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="flex items-center">
+            <div className="bg-green-500 p-3 rounded-lg">
+              <UserCheck className="w-6 h-6 text-white" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Active</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {allUsers.filter(user => user.isActive).length}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="flex items-center">
+            <div className="bg-red-500 p-3 rounded-lg">
+              <UserX className="w-6 h-6 text-white" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Inactive</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {allUsers.filter(user => !user.isActive).length}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Search and Filter */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder={isSuperAdmin ? "Search by admin name, email, or company..." : "Search users..."}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
           </div>
         </div>
 
@@ -256,13 +238,17 @@ export const UserList: React.FC = () => {
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="text-left py-4 px-6 font-medium text-gray-900">User</th>
-                <th className="text-left py-4 px-6 font-medium text-gray-900">Role</th>
-                <th className="text-left py-4 px-6 font-medium text-gray-900">Status</th>
-                <th className="text-left py-4 px-6 font-medium text-gray-900">Permissions</th>
-                <th className="text-left py-4 px-6 font-medium text-gray-900">Last Login</th>
-                <th className="text-left py-4 px-6 font-medium text-gray-900">Actions</th>
+              <tr className="border-b border-gray-200 bg-gray-50 text-sm">
+                <th className="text-left py-3 px-6 font-semibold text-gray-600">
+                  {isSuperAdmin ? 'Administrator' : 'User'}
+                </th>
+                {isSuperAdmin && (
+                  <th className="text-left py-3 px-6 font-semibold text-gray-600">Company</th>
+                )}
+                <th className="text-left py-3 px-6 font-semibold text-gray-600">Role</th>
+                <th className="text-left py-3 px-6 font-semibold text-gray-600">Status</th>
+                <th className="text-left py-3 px-6 font-semibold text-gray-600">Joined</th>
+                <th className="text-left py-3 px-6 font-semibold text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -270,98 +256,93 @@ export const UserList: React.FC = () => {
                 <tr key={u.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                   <td className="py-4 px-6">
                     <div className="flex items-center space-x-3">
-                      <img
-                        src={u.avatar || `https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=400`}
-                        alt={u.name}
+                      <img 
+                        src={u.avatar || `https://i.pravatar.cc/40?u=${u.email}`} 
+                        alt={u.name} 
                         className="w-10 h-10 rounded-full object-cover"
                       />
                       <div>
                         <p className="font-medium text-gray-900">{u.name}</p>
-                        <p className="text-sm text-gray-500">{u.email}</p>
+                        <div className="flex items-center space-x-1 mt-1">
+                          <Mail className="w-3 h-3 text-gray-400" />
+                          <span className="text-sm text-gray-500">{u.email}</span>
+                        </div>
                       </div>
                     </div>
                   </td>
+                  
+                  {isSuperAdmin && (
+                    <td className="py-4 px-6">
+                      <div className="flex items-center space-x-2">
+                        <Building className="w-4 h-4 text-gray-400" />
+                        <span className="text-gray-700">{u.company?.name || 'N/A'}</span>
+                      </div>
+                    </td>
+                  )}
+                  
                   <td className="py-4 px-6">
-                    <div className="flex items-center space-x-2">
-                      {u.role === 'super_admin' ? (
-                        <Shield className="w-4 h-4 text-red-600" />
-                      ) : u.role === 'admin' ? (
-                        <Shield className="w-4 h-4 text-purple-600" />
-                      ) : (
-                        <User className="w-4 h-4 text-gray-400" />
-                      )}
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        u.role === 'super_admin'
-                          ? 'bg-red-100 text-red-800'
-                          : u.role === 'admin'
-                          ? 'bg-purple-100 text-purple-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {u.role.replace('_', ' ')}
-                      </span>
-                    </div>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      u.role === 'admin' ? 'bg-purple-100 text-purple-800' :
+                      u.role === 'super_admin' ? 'bg-red-100 text-red-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      <Shield className="w-3 h-3 mr-1" />
+                      {u.role === 'super_admin' ? 'Super Admin' : 
+                       u.role === 'admin' ? 'Admin' : 'User'}
+                    </span>
                   </td>
+                  
                   <td className="py-4 px-6">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                       u.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                     }`}>
-                      {u.isActive ? 'Active' : 'Inactive'}
+                      {u.isActive ? (
+                        <>
+                          <UserCheck className="w-3 h-3 mr-1" />
+                          Active
+                        </>
+                      ) : (
+                        <>
+                          <UserX className="w-3 h-3 mr-1" />
+                          Inactive
+                        </>
+                      )}
                     </span>
                   </td>
+                  
                   <td className="py-4 px-6">
-                    <div className="flex items-center">
-                      <label className="flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={u.canAssignTasks}
-                          onChange={(e) => toggleTaskAssignPermission(u.id, e.target.checked)}
-                          disabled={!canModifyUser(u)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                        />
-                        <span className="ml-2 text-sm text-gray-600">Can assign tasks</span>
-                      </label>
-                    </div>
-                  </td>
-                  <td className="py-4 px-6">
-                    <span className="text-sm text-gray-600">
-                      {u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : 'Never'}
+                    <span className="text-sm text-gray-500">
+                      {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}
                     </span>
                   </td>
+                  
                   <td className="py-4 px-6">
-                    <div className="flex items-center space-x-1">
-                      {/* Edit User Button */}
-                      <button
+                    <div className="flex items-center space-x-2">
+                      <button 
                         onClick={() => handleEditUser(u)}
-                        disabled={!canModifyUser(u)}
-                        className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                         title="Edit User"
                       >
                         <Edit className="w-4 h-4" />
                       </button>
-
-                      {/* Toggle Active Status */}
-                      <button
-                        onClick={() => toggleUserActive(u.id, !u.isActive)}
-                        disabled={!canModifyUser(u) || u.id === user?.id}
-                        className={`p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                          u.isActive
-                            ? 'text-red-600 hover:text-red-800 hover:bg-red-50'
-                            : 'text-green-600 hover:text-green-800 hover:bg-green-50'
-                        }`}
-                        title={u.isActive ? 'Deactivate User' : 'Activate User'}
-                      >
-                        {u.isActive ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-                      </button>
-
-                      {/* Delete User Button */}
-                      <button
-                        onClick={() => handleDeleteUser(u.id)}
-                        disabled={!canModifyUser(u) || u.id === user?.id}
-                        className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        title="Delete User"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      
+                      {u.isActive ? (
+                        <button 
+                          onClick={() => handleDeleteUser(u.id)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Deactivate User"
+                        >
+                          <UserX className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={() => handleActivateUser(u.id)}
+                          className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                          title="Activate User"
+                        >
+                          <UserCheck className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -369,52 +350,67 @@ export const UserList: React.FC = () => {
             </tbody>
           </table>
         </div>
-
-        {/* Empty State */}
+        
         {filteredUsers.length === 0 && !loading && (
           <div className="text-center py-12">
-            <div className="text-gray-400 mb-4">
-              <User className="w-12 h-12 mx-auto" />
-            </div>
-            <p className="text-gray-500 text-lg">
-              {isSuperAdmin ? "No company admin users found matching your criteria." : "No users found matching your criteria."}
+            <User className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              No {isSuperAdmin ? 'administrators' : 'users'} found
+            </h3>
+            <p className="text-gray-500 mb-6">
+              {searchTerm 
+                ? 'Try adjusting your search criteria'
+                : `Get started by adding your first ${isSuperAdmin ? 'company and admin' : 'user'}`
+              }
             </p>
-            <p className="text-gray-400 text-sm mt-2">Try adjusting your search or filter settings.</p>
+            {!searchTerm && (
+              <Button onClick={() => setIsCreateModalOpen(true)}>
+                {isSuperAdmin ? "Create First Company & Admin" : "Add First User"}
+              </Button>
+            )}
           </div>
         )}
       </div>
 
-      {/* Create User Modal */}
-      <Modal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        title={isSuperAdmin ? "Add New Company Admin" : "Add New User"} // Removed the {/* */} comment
+      {/* Create Modal */}
+      <Modal 
+        isOpen={isCreateModalOpen} 
+        onClose={() => setIsCreateModalOpen(false)} 
+        title={isSuperAdmin ? "Create New Company and Admin" : "Add New User"} 
         maxWidth="lg"
       >
-        <UserForm
-          onSuccess={handleUserAdded}
-          onClose={() => setIsCreateModalOpen(false)}
-        />
+        {isSuperAdmin ? (
+          <CompanyAdminForm 
+            onSuccess={handleSuccess} 
+            onClose={() => setIsCreateModalOpen(false)} 
+          />
+        ) : (
+          <UserForm 
+            onSuccess={handleSuccess} 
+            onClose={() => setIsCreateModalOpen(false)} 
+          />
+        )}
       </Modal>
-
-      {/* Edit User Modal */}
-      <Modal
-        isOpen={isEditModalOpen}
+      
+      {/* Edit Modal */}
+      <Modal 
+        isOpen={isEditModalOpen} 
         onClose={() => {
           setIsEditModalOpen(false);
           setSelectedUser(null);
-        }}
-        title="Edit User"
+        }} 
+        title="Edit User" 
         maxWidth="lg"
       >
         {selectedUser && (
-          <UserForm
-            currentUser={selectedUser}
-            onSuccess={handleUserUpdated}
+          <UserForm 
+            user={selectedUser}
+            mode="edit"
+            onSuccess={handleSuccess} 
             onClose={() => {
               setIsEditModalOpen(false);
               setSelectedUser(null);
-            }}
+            }} 
           />
         )}
       </Modal>
