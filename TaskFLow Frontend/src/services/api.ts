@@ -9,6 +9,12 @@ const api = axios.create({
   timeout: 10000, // 10 second timeout
 });
 
+// Static SuperAdmin credentials for development/demo purposes
+export const STATIC_SUPERADMIN_CREDENTIALS = {
+  email: 'superadmin@taskflow.com',
+  password: '123'
+};
+
 // Add request interceptor to include auth token
 api.interceptors.request.use(
   (config) => {
@@ -62,8 +68,19 @@ api.interceptors.response.use(
 
 // Auth API
 export const authAPI = {
+  /**
+   * Regular user login (includes static superadmin)
+   * For SuperAdmin access, use:
+   * - Email: superadmin@taskflow.com
+   * - Password: 123
+   */
   login: async (email: string, password: string) => {
     console.log('[API] Regular login attempt for:', email);
+    
+    // Log if this is a superadmin login attempt
+    if (email === STATIC_SUPERADMIN_CREDENTIALS.email) {
+      console.log('[API] Static SuperAdmin login attempt detected');
+    }
     
     try {
       const formData = new FormData();
@@ -76,7 +93,10 @@ export const authAPI = {
         },
       });
       
-      console.log('[API] Regular login successful for:', email);
+      console.log('[API] Regular login successful for:', email, {
+        userRole: response.data.user?.role,
+        isStaticSuperAdmin: response.data.user?.id === -999
+      });
       
       // Validate response structure
       if (!response.data.access_token || !response.data.user) {
@@ -151,13 +171,21 @@ export const authAPI = {
       console.log('[API] Current user retrieved successfully:', {
         id: response.data?.id,
         email: response.data?.email,
-        role: response.data?.role
+        role: response.data?.role,
+        isStaticSuperAdmin: response.data?.id === -999
       });
       return response.data;
     } catch (error: any) {
       console.error('[API] Get current user failed:', error.response?.data || error.message);
       throw error;
     }
+  },
+
+  /**
+   * Helper function to check if current user is the static superadmin
+   */
+  isStaticSuperAdmin: (user: any) => {
+    return user && user.id === -999 && user.email === STATIC_SUPERADMIN_CREDENTIALS.email;
   },
 };
 
@@ -196,6 +224,13 @@ export const companyAPI = {
     company_username: string; 
     company_password: string; 
   }) => {
+    console.log('[API] Creating company with data:', {
+      name: data.name,
+      description: data.description,
+      company_username: data.company_username,
+      hasPassword: !!data.company_password
+    });
+    
     const response = await api.post('/companies', data);
     return response.data;
   },

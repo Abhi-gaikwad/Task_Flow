@@ -1,7 +1,7 @@
 // src/components/admin/CompanyCreationForm.tsx
 import React, { useState } from 'react';
 import { companyAPI, handleApiError } from '../../services/api';
-import { Building, Eye, EyeOff, Lock, Mail } from 'lucide-react';
+import { Building, Eye, EyeOff, Lock, User } from 'lucide-react';
 
 interface CompanyCreationFormProps {
   onSuccess: () => void;
@@ -11,7 +11,7 @@ interface CompanyCreationFormProps {
 interface CompanyFormData {
   name: string;
   description: string;
-  company_email: string;
+  company_username: string;
   company_password: string;
   company_password_confirmation: string;
 }
@@ -24,7 +24,7 @@ const CompanyCreationForm: React.FC<CompanyCreationFormProps> = ({ onSuccess, on
   const [companyData, setCompanyData] = useState<CompanyFormData>({
     name: '',
     description: '',
-    company_email: '',
+    company_username: '',
     company_password: '',
     company_password_confirmation: '',
   });
@@ -44,20 +44,36 @@ const CompanyCreationForm: React.FC<CompanyCreationFormProps> = ({ onSuccess, on
       return;
     }
 
+    if (companyData.company_password.length < 6) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      // The API endpoint now expects company_email instead of company_username
+      console.log('[CompanyForm] Submitting company data:', {
+        name: companyData.name,
+        description: companyData.description,
+        company_username: companyData.company_username,
+        hasPassword: !!companyData.company_password
+      });
+
       await companyAPI.createCompany({
         name: companyData.name,
         description: companyData.description,
-        company_email: companyData.company_email,
+        company_username: companyData.company_username,
         company_password: companyData.company_password,
-        company_password_confirmation: companyData.company_password_confirmation,
       });
+      
+      console.log('[CompanyForm] Company created successfully');
       onSuccess();
     } catch (err: any) {
-      console.error('Company creation failed:', err);
+      console.error('[CompanyForm] Company creation failed:', {
+        error: err,
+        response: err.response?.data,
+        status: err.response?.status
+      });
       setError(handleApiError(err));
     } finally {
       setLoading(false);
@@ -71,7 +87,7 @@ const CompanyCreationForm: React.FC<CompanyCreationFormProps> = ({ onSuccess, on
           <Building className="w-8 h-8 text-blue-600" />
         </div>
         <h3 className="text-lg font-semibold text-gray-900">Create New Company</h3>
-        <p className="text-sm text-gray-600 mt-1">Provide Company and Admin Email Information</p>
+        <p className="text-sm text-gray-600 mt-1">Provide Company and Login Information</p>
       </div>
 
       <div className="space-y-4">
@@ -108,25 +124,28 @@ const CompanyCreationForm: React.FC<CompanyCreationFormProps> = ({ onSuccess, on
           />
         </div>
         
-        {/* Company Admin Email */}
+        {/* Company Username */}
         <div className="mt-4">
           <div className="flex items-center space-x-2">
-            <Mail className="w-5 h-5 text-gray-400" />
-            <label htmlFor="company_email" className="block text-sm font-medium text-gray-700">
-              Admin Email *
+            <User className="w-5 h-5 text-gray-400" />
+            <label htmlFor="company_username" className="block text-sm font-medium text-gray-700">
+              Company Username *
             </label>
           </div>
           <input
-            type="email"
-            id="company_email"
-            name="company_email"
-            value={companyData.company_email}
+            type="text"
+            id="company_username"
+            name="company_username"
+            value={companyData.company_username}
             onChange={handleChange}
             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Admin's email address"
+            placeholder="Enter unique company username"
             required
+            minLength={3}
+            pattern="[a-zA-Z0-9_-]+"
+            title="Username can only contain letters, numbers, hyphens, and underscores"
           />
-          <p className="text-xs text-gray-500 mt-1">This email will be the login for the company's administrator</p>
+          <p className="text-xs text-gray-500 mt-1">This username will be used to login to the company dashboard</p>
         </div>
 
         {/* Password */}
@@ -145,7 +164,7 @@ const CompanyCreationForm: React.FC<CompanyCreationFormProps> = ({ onSuccess, on
               value={companyData.company_password}
               onChange={handleChange}
               className="block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:ring-blue-500 focus:border-blue-500 pr-10"
-              placeholder="Secure password"
+              placeholder="Secure password (min 6 characters)"
               required
               minLength={6}
             />
@@ -186,11 +205,26 @@ const CompanyCreationForm: React.FC<CompanyCreationFormProps> = ({ onSuccess, on
             </span>
           </div>
         </div>
+
+        {/* Password Match Indicator */}
+        {companyData.company_password && companyData.company_password_confirmation && (
+          <div className={`text-xs mt-1 ${
+            companyData.company_password === companyData.company_password_confirmation 
+              ? 'text-green-600' 
+              : 'text-red-600'
+          }`}>
+            {companyData.company_password === companyData.company_password_confirmation 
+              ? '✓ Passwords match' 
+              : '✗ Passwords do not match'
+            }
+          </div>
+        )}
       </div>
 
       {error && (
         <div className="bg-red-50 border border-red-400 text-red-700 px-4 py-3 rounded">
-          {error}
+          <p className="font-semibold">Error:</p>
+          <p>{error}</p>
         </div>
       )}
 
@@ -208,14 +242,27 @@ const CompanyCreationForm: React.FC<CompanyCreationFormProps> = ({ onSuccess, on
           disabled={
             loading || 
             !companyData.name || 
-            !companyData.company_email || 
+            !companyData.company_username || 
             !companyData.company_password ||
-            !companyData.company_password_confirmation
+            !companyData.company_password_confirmation ||
+            companyData.company_password !== companyData.company_password_confirmation
           }
           className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? 'Creating Company...' : 'Create Company'}
         </button>
+      </div>
+
+      {/* Help Text */}
+      <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mt-4">
+        <div className="text-sm text-blue-800">
+          <p className="font-semibold mb-2">After creating the company:</p>
+          <ul className="list-disc list-inside space-y-1">
+            <li>Use the company username and password to login via "Company Login"</li>
+            <li>The company will have admin privileges to manage users and tasks</li>
+            <li>You can create additional users within the company after logging in</li>
+          </ul>
+        </div>
       </div>
     </form>
   );

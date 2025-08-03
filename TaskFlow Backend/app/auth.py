@@ -1,4 +1,4 @@
-# app/auth.py - Fix virtual user email format
+# app/auth.py - Enhanced with static superadmin support
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from passlib.context import CryptContext
@@ -11,6 +11,10 @@ from app.config import settings
 
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
+
+# Static SuperAdmin credentials
+STATIC_SUPERADMIN_EMAIL = "superadmin@test.com"
+STATIC_SUPERADMIN_PASSWORD = "123"
 
 def get_password_hash(pw: str) -> str:
     return pwd_ctx.hash(pw)
@@ -26,10 +30,34 @@ def create_access_token(user_id: int) -> str:
         algorithm=settings.algorithm
     )
 
+def create_static_superadmin_user() -> User:
+    """
+    Create a virtual static superadmin user
+    Uses a special ID (-999) to avoid conflicts with real users
+    """
+    virtual_superadmin = User(
+        id=-999,  # Special negative ID for static superadmin
+        email=STATIC_SUPERADMIN_EMAIL,
+        username="superadmin",
+        role=UserRole.SUPER_ADMIN,
+        company_id=None,  # SuperAdmin doesn't belong to any company
+        is_active=True,
+        hashed_password="static-superadmin-no-password",
+        created_at=datetime.utcnow()
+    )
+    return virtual_superadmin
+
 def authenticate_user(db: Session, email: str, password: str) -> User | None:
     """
-    Authenticate a regular user by email and password
+    Authenticate a user by email and password
+    Handles both regular users and static superadmin
     """
+    # Check for static superadmin first
+    if email == STATIC_SUPERADMIN_EMAIL and password == STATIC_SUPERADMIN_PASSWORD:
+        print(f"[DEBUG] Static superadmin login successful")
+        return create_static_superadmin_user()
+    
+    # Regular user authentication
     user = db.query(User).filter(User.email == email).first()
     if not user or not user.hashed_password:
         return None
@@ -126,7 +154,12 @@ def get_current_user(
         print(f"[DEBUG] Token decode error: {e}")
         raise cred_exc
     
-    # Handle virtual company admin users (negative IDs)
+    # Handle static superadmin (special ID -999)
+    if uid == -999:
+        print(f"[DEBUG] Static superadmin token validation")
+        return create_static_superadmin_user()
+    
+    # Handle virtual company admin users (other negative IDs)
     if uid < 0:
         company_id = abs(uid)  # Convert negative ID back to company ID
         print(f"[DEBUG] Virtual user detected, company ID: {company_id}")
