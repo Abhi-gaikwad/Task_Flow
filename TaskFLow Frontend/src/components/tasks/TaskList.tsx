@@ -26,7 +26,7 @@ export const TaskList: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const endpoint = user?.role === 'admin' ? '/api/v1/tasks' : '/api/v1/my-tasks';
       const response = await fetch(`http://localhost:8000${endpoint}`, {
         headers: {
@@ -41,14 +41,14 @@ export const TaskList: React.FC = () => {
 
       const backendTasks = await response.json();
       console.log('Fetched backend tasks:', backendTasks);
-      
+
       const transformedTasks: Task[] = backendTasks.map((task: any) => ({
         id: task.id.toString(),
         title: task.title,
         description: task.description || '',
         priority: 'medium' as Task['priority'],
-        status: task.status === 'in_progress' ? 'in-progress' : 
-                (task.status || 'pending') as 'pending' | 'in-progress' | 'completed',
+        status: task.status === 'in_progress' ? 'in-progress' :
+          (task.status || 'pending') as 'pending' | 'in-progress' | 'completed',
         assignedTo: task.assigned_to_id?.toString() || '',
         assignedBy: task.created_by?.toString() || '',
         createdAt: task.created_at ? new Date(task.created_at) : new Date(),
@@ -58,7 +58,7 @@ export const TaskList: React.FC = () => {
         assignee_name: task.assignee_name,
         creator_name: task.creator_name
       }));
-      
+
       console.log('Transformed tasks:', transformedTasks);
       updateTasks(transformedTasks);
     } catch (error: any) {
@@ -69,19 +69,23 @@ export const TaskList: React.FC = () => {
     }
   };
 
-  const filteredTasks = tasks.filter(task => {
-    const matchesSearch = task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         task.description.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredTasks = (tasks || []).filter(task => {
+    const title = (task.title ?? '').toLowerCase();
+    const description = (task.description ?? '').toLowerCase();
+    const term = searchTerm.toLowerCase();
+
+    const matchesSearch = title.includes(term) || description.includes(term);
     const matchesStatus = statusFilter === 'all' || task.status === statusFilter;
     const matchesPriority = priorityFilter === 'all' || task.priority === priorityFilter;
-    
+
     let matchesUser = true;
     if (user?.role !== 'admin') {
       matchesUser = task.assignedTo === user?.id?.toString() || task.assignedBy === user?.id?.toString();
     }
-    
+
     return matchesSearch && matchesStatus && matchesPriority && matchesUser;
   });
+
 
   const handleCreateTask = async () => {
     try {
@@ -229,8 +233,8 @@ export const TaskList: React.FC = () => {
               task={task}
               onEdit={handleEditTask}
               onDelete={handleDeleteTask}
-              // Temporarily removed onTaskUpdated to avoid TypeScript error
-              // onTaskUpdated={handleTaskUpdated}
+            // Temporarily removed onTaskUpdated to avoid TypeScript error
+            // onTaskUpdated={handleTaskUpdated}
             />
           ))}
         </div>
@@ -244,7 +248,7 @@ export const TaskList: React.FC = () => {
             <p className="text-gray-400">
               {statusFilter !== 'all' || priorityFilter !== 'all' || searchTerm
                 ? 'Try adjusting your filters or search terms'
-                : user?.role === 'admin' 
+                : user?.role === 'admin'
                   ? 'Create your first task to get started'
                   : 'No tasks have been assigned to you yet'
               }

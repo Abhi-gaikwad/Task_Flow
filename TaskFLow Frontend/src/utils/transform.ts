@@ -61,7 +61,7 @@ export const transformBackendUser = (backendUser: BackendUser): FrontendUser => 
     username: backendUser.username,
     name: backendUser.full_name || backendUser.username,
     role: backendUser.role,
-    companyId: backendUser.company_id,
+    companyId: backendUser.company_id ?? backendUser.company?.id ?? undefined,
     isActive: backendUser.is_active,
     createdAt: backendUser.created_at,
     updatedAt: backendUser.updated_at,
@@ -72,15 +72,18 @@ export const transformBackendUser = (backendUser: BackendUser): FrontendUser => 
     aboutMe: backendUser.about_me,
     preferredLanguage: backendUser.preferred_language || 'en',
     canAssignTasks: backendUser.can_assign_tasks || false,
-    company: backendUser.company ? {
-      id: backendUser.company.id,
-      name: backendUser.company.name,
-      description: backendUser.company.description,
-      isActive: backendUser.company.is_active,
-      createdAt: backendUser.company.created_at,
-    } : undefined,
+    company: backendUser.company
+      ? {
+        id: backendUser.company.id,
+        name: backendUser.company.name,
+        description: backendUser.company.description,
+        isActive: backendUser.company.is_active,
+        createdAt: backendUser.company.created_at,
+      }
+      : undefined,
   };
 };
+
 
 /**
  * Transform frontend user data to backend format for API calls
@@ -117,15 +120,15 @@ export const getUserDisplayName = (user: BackendUser | FrontendUser): string => 
   if ('name' in user && user.name) {
     return user.name;
   }
-  
+
   if ('fullName' in user && user.fullName) {
     return user.fullName;
   }
-  
+
   if ('full_name' in user && user.full_name) {
     return user.full_name;
   }
-  
+
   return user.username;
 };
 
@@ -133,13 +136,13 @@ export const getUserDisplayName = (user: BackendUser | FrontendUser): string => 
  * Get user avatar with fallback
  */
 export const getUserAvatar = (user: BackendUser | FrontendUser): string => {
-  const avatar = 'avatar' in user ? user.avatar : 
-                 'avatar_url' in user ? user.avatar_url : null;
-  
+  const avatar = 'avatar' in user ? user.avatar :
+    'avatar_url' in user ? user.avatar_url : null;
+
   if (avatar) {
     return avatar;
   }
-  
+
   // Generate avatar from email or username
   const identifier = user.email || user.username;
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(getUserDisplayName(user))}&background=3b82f6&color=white&size=40`;
@@ -179,7 +182,7 @@ export const canUserManageCompanies = (user: BackendUser | FrontendUser): boolea
 export const areUsersInSameCompany = (user1: BackendUser | FrontendUser, user2: BackendUser | FrontendUser): boolean => {
   const company1 = 'companyId' in user1 ? user1.companyId : user1.company_id;
   const company2 = 'companyId' in user2 ? user2.companyId : user2.company_id;
-  
+
   return company1 !== undefined && company2 !== undefined && company1 === company2;
 };
 
@@ -191,15 +194,15 @@ export const getManageableUsers = (currentUser: BackendUser | FrontendUser, allU
     // Super admin can manage all admin users
     return allUsers.filter(user => user.role === 'admin');
   }
-  
+
   if (currentUser.role === 'admin') {
     // Admin can manage users in their company (except super admins)
-    return allUsers.filter(user => 
-      user.role !== 'super_admin' && 
+    return allUsers.filter(user =>
+      user.role !== 'super_admin' &&
       areUsersInSameCompany(currentUser, user)
     );
   }
-  
+
   // Regular users can't manage anyone
   return [];
 };
@@ -212,15 +215,15 @@ export const filterUsersForRole = (currentUser: BackendUser | FrontendUser, user
     // Super admin sees all company admins
     return users.filter(user => user.role === 'admin');
   }
-  
+
   if (currentUser.role === 'admin') {
     // Admin sees users in their company (except super admins)
-    return users.filter(user => 
-      user.role !== 'super_admin' && 
+    return users.filter(user =>
+      user.role !== 'super_admin' &&
       areUsersInSameCompany(currentUser, user)
     );
   }
-  
+
   // Regular users only see themselves
   return users.filter(user => user.id === currentUser.id);
 };

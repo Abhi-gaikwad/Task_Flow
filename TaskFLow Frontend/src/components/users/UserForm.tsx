@@ -1,187 +1,157 @@
-// src/components/users/UserForm.tsx
-import React, { useState, useEffect } from 'react';
-import { User, UserRole } from '../../types';
-import { usersAPI, companyAPI } from '../../services/api';
-import { useAuth } from '../../contexts/AuthContext';
-import { Button } from '../common/Button';
-import { Mail, User as UserIcon, KeyRound, Building, Shield } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { Mail, User as UserIcon, Shield, KeyRound, Building } from "lucide-react";
+import { Button } from "../common/Button";
+import { usersAPI, companyAPI } from "../../services/api";
+import { User as UserType, Company } from "../../types";
+import { useAuth } from "../../contexts/AuthContext";
 
 interface UserFormProps {
-  user?: User;
+  user?: UserType;
   onSuccess?: () => void;
   onClose: () => void;
-  mode?: 'create' | 'edit';
+  mode?: "create" | "edit";
 }
 
-interface Company {
-  id: number;
-  name: string;
-  description?: string;
-}
+const getRoleOptions = (currentUser: UserType | undefined) =>
+  currentUser?.role === "super_admin"
+    ? [
+        { value: "admin", label: "Admin" },
+        { value: "user", label: "User" },
+      ]
+    : currentUser?.role === "admin"
+      ? [
+          { value: "admin", label: "Admin" },
+          { value: "user", label: "User" },
+        ]
+      : [{ value: "user", label: "User" }];
 
-export const UserForm: React.FC<UserFormProps> = ({ 
-  user, 
-  onSuccess, 
-  onClose, 
-  mode = 'create' 
+export const UserForm: React.FC<UserFormProps> = ({
+  user,
+  onSuccess,
+  onClose,
+  mode = "create",
 }) => {
   const { user: currentUser } = useAuth();
-  const [loading, setLoading] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // For admins, always use their company_id. For super_admins, allow selection.
-  const defaultCompanyId = currentUser?.role === 'admin' 
-    ? currentUser.company_id 
-    : user?.company_id || '';
+  // Default companyId (forced for admins!)
+  const defaultCompanyId =
+    currentUser?.role === "admin"
+      ? String(currentUser.companyId ?? currentUser.company_id ?? "")
+      : user?.companyId?.toString() || user?.company_id?.toString() || "";
 
   const [formData, setFormData] = useState({
-    email: user?.email || '',
-    username: user?.username || '',
-    password: '',
-    role: user?.role || 'user',
-    company_id: defaultCompanyId,
-    is_active: user?.is_active ?? true,
+    email: user?.email || "",
+    username: user?.username || "",
+    password: "",
+    role:
+      currentUser?.role === "admin" && mode === "create"
+        ? "user"
+        : user?.role || "user",
+    companyId: defaultCompanyId,
+    isActive: (user as any)?.isActive ?? true,
   });
 
-  // Load companies when component mounts (only for super admins)
   useEffect(() => {
-    const loadCompanies = async () => {
-      try {
-        const companiesData = await companyAPI.listCompanies();
-        setCompanies(companiesData);
-      } catch (error) {
-        console.error('Failed to load companies:', error);
-      }
-    };
-
-    // Only super admins can select different companies
-    if (currentUser?.role === 'super_admin') {
-      loadCompanies();
+    if (currentUser?.role === "super_admin") {
+      companyAPI
+        .listCompanies()
+        .then(setCompanies)
+        .catch(() => setCompanies([]));
     }
   }, [currentUser]);
 
-  const handleChange = (key: keyof typeof formData, value: string | number | boolean) => {
-    setFormData(prev => ({ ...prev, [key]: value }));
-    // Clear field-specific error when user starts typing
-    if (errors[key]) {
-      setErrors(prev => ({ ...prev, [key]: '' }));
-    }
+  const handleChange = (key: keyof typeof formData, value: string | boolean) => {
+    // If admin and key is role, allow selecting "admin" or "user"
+    setFormData((prev) => ({ ...prev, [key]: value }));
+    if (errors[key]) setErrors((prev) => ({ ...prev, [key]: "" }));
   };
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
-
-    if (!formData.email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      newErrors.email = 'Please enter a valid email address';
-    }
-
-    if (!formData.username.trim()) {
-      newErrors.username = 'Username is required';
-    } else if (formData.username.length < 3) {
-      newErrors.username = 'Username must be at least 3 characters';
-    }
-
-    if (mode === 'create' && !formData.password) {
-      newErrors.password = 'Password is required';
-    } else if (formData.password && formData.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
-    }
-
-    // Only super admins need to select a company
-    if (currentUser?.role === 'super_admin' && !formData.company_id) {
-      newErrors.company_id = 'Company is required';
-    }
-
+    if (!formData.email.trim()) newErrors.email = "Email is required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))
+      newErrors.email = "Please enter a valid email address";
+    if (!formData.username.trim())
+      newErrors.username = "Username is required";
+    else if (formData.username.length < 3)
+      newErrors.username = "Username must be at least 3 characters";
+    if (mode === "create" && !formData.password)
+      newErrors.password = "Password is required";
+    else if (formData.password && formData.password.length < 6)
+      newErrors.password = "Password must be at least 6 characters";
+    if (currentUser?.role === "super_admin" && !formData.companyId)
+      newErrors.companyId = "Company is required";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-
+    if (!validateForm()) return;
     setLoading(true);
     try {
-      // Prepare user data
-      const userData = {
+      const userData: any = {
         email: formData.email,
         username: formData.username,
         ...(formData.password && { password: formData.password }),
-        role: formData.role as UserRole,
-        is_active: formData.is_active,
+        is_active: formData.isActive,
       };
-
-      // Set company_id based on user role
-      if (currentUser?.role === 'super_admin') {
-        // Super admin can assign to any company
-        if (formData.company_id) {
-          userData.company_id = Number(formData.company_id);
-        }
-      } else if (currentUser?.role === 'admin') {
-        // Admin can only create users in their own company
-        if (!currentUser.company_id) {
-          throw new Error('Admin user must have a company_id');
-        }
-        userData.company_id = currentUser.company_id;
+      if (currentUser?.role === "super_admin") {
+        if (!formData.companyId) throw new Error("Company required");
+        userData.company_id = Number(formData.companyId);
+        userData.role = formData.role;
+      } else if (currentUser?.role === "admin") {
+        const companyId = currentUser.companyId ?? currentUser.company_id;
+        if (!companyId)
+          throw new Error("Admin user must have a company_id");
+        userData.company_id = Number(companyId);
+        userData.role = formData.role; // allow admin to create admins/users for their company
       }
-
-      console.log('Sending user data:', userData); // Debug log
-      console.log('Current user:', currentUser); // Debug log
-
-      if (mode === 'create') {
+      if (mode === "create") {
         await usersAPI.createUser(userData);
       } else if (user) {
         await usersAPI.updateUser(user.id, userData);
       }
-
       if (onSuccess) onSuccess();
       onClose();
     } catch (error: any) {
-      console.error('Failed to save user:', error);
-      const errorMessage = error.response?.data?.detail || error.message || 'Failed to save user';
-      setErrors({ general: errorMessage });
+      setErrors({
+        general:
+          error?.response?.data?.detail || error?.message || "Failed to save user",
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const canEditRole = currentUser?.role === 'super_admin' || 
-    (currentUser?.role === 'admin' && formData.role !== 'super_admin');
-
-  const availableRoles = currentUser?.role === 'super_admin' 
-    ? ['admin', 'user'] 
-    : ['user'];
-
-  const showCompanySelect = currentUser?.role === 'super_admin' && companies.length > 0;
+  const roleOptions = getRoleOptions(currentUser);
+  const showCompanySelect = currentUser?.role === "super_admin" && companies.length > 0;
 
   return (
     <div className="max-w-md mx-auto">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-900">
-          {mode === 'create' ? 'Create New User' : 'Edit User'}
+          {mode === "create" ? "Create New User" : "Edit User"}
         </h2>
         <p className="text-gray-600 mt-2">
-          {mode === 'create' ? 'Add a new user to the system' : 'Update user information'}
+          {mode === "create"
+            ? "Add a new user to the system"
+            : "Update user information"}
         </p>
-        {currentUser?.role === 'admin' && (
+        {currentUser?.role === "admin" && (
           <p className="text-sm text-blue-600 mt-1">
             User will be added to your company: {currentUser.company?.name}
           </p>
         )}
       </div>
-
       {errors.general && (
         <div className="mb-4 p-4 border border-red-300 rounded-lg bg-red-50">
           <p className="text-red-800 text-sm">{errors.general}</p>
         </div>
       )}
-
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Email */}
         <div>
@@ -192,9 +162,9 @@ export const UserForm: React.FC<UserFormProps> = ({
           <input
             type="email"
             value={formData.email}
-            onChange={(e) => handleChange('email', e.target.value)}
+            onChange={(e) => handleChange("email", e.target.value)}
             className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              errors.email ? 'border-red-300 bg-red-50' : 'border-gray-300'
+              errors.email ? "border-red-300 bg-red-50" : "border-gray-300"
             }`}
             placeholder="Enter email address"
             disabled={loading}
@@ -203,7 +173,6 @@ export const UserForm: React.FC<UserFormProps> = ({
             <p className="text-red-600 text-sm mt-1">{errors.email}</p>
           )}
         </div>
-
         {/* Username */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -213,9 +182,9 @@ export const UserForm: React.FC<UserFormProps> = ({
           <input
             type="text"
             value={formData.username}
-            onChange={(e) => handleChange('username', e.target.value)}
+            onChange={(e) => handleChange("username", e.target.value)}
             className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              errors.username ? 'border-red-300 bg-red-50' : 'border-gray-300'
+              errors.username ? "border-red-300 bg-red-50" : "border-gray-300"
             }`}
             placeholder="Enter username"
             disabled={loading}
@@ -224,21 +193,20 @@ export const UserForm: React.FC<UserFormProps> = ({
             <p className="text-red-600 text-sm mt-1">{errors.username}</p>
           )}
         </div>
-
         {/* Password */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             <KeyRound className="w-4 h-4 inline mr-2" />
-            Password {mode === 'create' ? '*' : '(leave blank to keep current)'}
+            Password {mode === "create" ? "*" : "(leave blank to keep current)"}
           </label>
           <input
             type="password"
             value={formData.password}
-            onChange={(e) => handleChange('password', e.target.value)}
+            onChange={(e) => handleChange("password", e.target.value)}
             className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              errors.password ? 'border-red-300 bg-red-50' : 'border-gray-300'
+              errors.password ? "border-red-300 bg-red-50" : "border-gray-300"
             }`}
-            placeholder={mode === 'create' ? 'Enter password' : 'Enter new password'}
+            placeholder={mode === "create" ? "Enter password" : "Enter new password"}
             disabled={loading}
             autoComplete="new-password"
           />
@@ -246,29 +214,25 @@ export const UserForm: React.FC<UserFormProps> = ({
             <p className="text-red-600 text-sm mt-1">{errors.password}</p>
           )}
         </div>
-
-        {/* Role */}
-        {canEditRole && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <Shield className="w-4 h-4 inline mr-2" />
-              Role
-            </label>
-            <select
-              value={formData.role}
-              onChange={(e) => handleChange('role', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={loading}
-            >
-              {availableRoles.map(role => (
-                <option key={role} value={role}>
-                  {role.charAt(0).toUpperCase() + role.slice(1)}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
+        {/* Role Select - Admins and Super Admins can pick */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            <Shield className="w-4 h-4 inline mr-2" />
+            Role
+          </label>
+          <select
+            value={formData.role}
+            onChange={(e) => handleChange("role", e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={loading}
+          >
+            {roleOptions.map((role) => (
+              <option key={role.value} value={role.value}>
+                {role.label}
+              </option>
+            ))}
+          </select>
+        </div>
         {/* Company - Only show for super admins */}
         {showCompanySelect && (
           <div>
@@ -277,53 +241,51 @@ export const UserForm: React.FC<UserFormProps> = ({
               Company *
             </label>
             <select
-              value={formData.company_id}
-              onChange={(e) => handleChange('company_id', e.target.value)}
+              value={formData.companyId}
+              onChange={(e) => handleChange("companyId", e.target.value)}
               className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.company_id ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                errors.companyId ? "border-red-300 bg-red-50" : "border-gray-300"
               }`}
               disabled={loading}
             >
               <option value="">Select a company</option>
-              {companies.map(company => (
+              {companies.map((company) => (
                 <option key={company.id} value={company.id}>
                   {company.name}
                 </option>
               ))}
             </select>
-            {errors.company_id && (
-              <p className="text-red-600 text-sm mt-1">{errors.company_id}</p>
+            {errors.companyId && (
+              <p className="text-red-600 text-sm mt-1">{errors.companyId}</p>
             )}
           </div>
         )}
-
         {/* Active Status */}
         <div className="flex items-center">
           <input
             type="checkbox"
-            id="is_active"
-            checked={formData.is_active}
-            onChange={(e) => handleChange('is_active', e.target.checked)}
+            id="isActive"
+            checked={formData.isActive}
+            onChange={(e) => handleChange("isActive", e.target.checked)}
             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
             disabled={loading}
           />
-          <label htmlFor="is_active" className="ml-2 block text-sm text-gray-700">
+          <label htmlFor="isActive" className="ml-2 block text-sm text-gray-700">
             User is active
           </label>
         </div>
-
         {/* Submit Buttons */}
         <div className="flex justify-end space-x-3 pt-6">
-          <Button 
-            type="button" 
-            variant="secondary" 
+          <Button
+            type="button"
+            variant="secondary"
             onClick={onClose}
             disabled={loading}
           >
             Cancel
           </Button>
-          <Button 
-            type="submit" 
+          <Button
+            type="submit"
             disabled={loading}
             className="min-w-[120px]"
           >
@@ -335,9 +297,7 @@ export const UserForm: React.FC<UserFormProps> = ({
                 </svg>
                 Saving...
               </span>
-            ) : (
-              mode === 'create' ? 'Create User' : 'Update User'
-            )}
+            ) : mode === "create" ? "Create User" : "Update User"}
           </Button>
         </div>
       </form>

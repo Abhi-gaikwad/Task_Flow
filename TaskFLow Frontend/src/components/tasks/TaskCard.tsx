@@ -1,3 +1,5 @@
+// src/components/tasks/TaskCard.tsx
+
 import React from 'react';
 import { Calendar, User, Tag, MoreHorizontal, Clock, CheckCircle } from 'lucide-react';
 import { Task } from '../../types';
@@ -11,9 +13,11 @@ interface TaskCardProps {
 }
 
 export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) => {
-  const { users, updateTask } = useApp();
+  // SAFETY: fallback to [] in destructure so users is never undefined
+  const { users = [], updateTask } = useApp();
   const { user } = useAuth();
 
+  // Defensive: even if users aren't loaded yet, this is safe
   const assignedUser = users.find(u => u.id === task.assignedTo);
   const assignedByUser = users.find(u => u.id === task.assignedBy);
 
@@ -30,27 +34,24 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
     completed: 'bg-green-100 text-green-800 border-green-200',
   };
 
- const handleStatusChange = async (newStatus: Task['status']) => {
-  try {
-    const response = await fetch(`http://localhost:8000/api/v1/tasks/${task.id}/status?status=${newStatus}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+  const handleStatusChange = async (newStatus: Task['status']) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/v1/tasks/${task.id}/status?status=${newStatus}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+      });
+      if (response.ok) {
+        updateTask(task.id, { ...task, status: newStatus });
+      } else {
+        const errorText = await response.text();
+        console.error('Failed to update task status:', response.status, errorText);
       }
-    });
-
-    if (response.ok) {
-      // Update local state via context to reflect status change instantly
-      updateTask(task.id, { ...task, status: newStatus });
-    } else {
-      const errorText = await response.text();
-      console.error('Failed to update task status:', response.status, errorText);
+    } catch (error) {
+      console.error('Error updating task status:', error);
     }
-  } catch (error) {
-    console.error('Error updating task status:', error);
-  }
-};
-
+  };
 
   const canEdit = user?.role === 'admin' || user?.id === task.assignedBy;
   const canDelete = user?.role === 'admin';
@@ -67,7 +68,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
             {task.priority}
           </span>
           {(canEdit || canDelete) && (
-            <button className="p-1 text-gray-400 hover:text-gray-600">
+            <button className="p-1 text-gray-400 hover:text-gray-600" type="button">
               <MoreHorizontal className="w-4 h-4" />
             </button>
           )}
@@ -78,11 +79,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
         <div className="flex items-center space-x-4 text-sm text-gray-600">
           <div className="flex items-center">
             <User className="w-4 h-4 mr-1" />
-            <span>{assignedUser?.name}</span>
+            <span>{assignedUser?.name || assignedUser?.username || assignedUser?.email || 'Unknown User'}</span>
           </div>
           <div className="flex items-center">
             <Calendar className="w-4 h-4 mr-1" />
-            <span>{new Date(task.dueDate).toLocaleDateString()}</span>
+            <span>{task.dueDate ? new Date(task.dueDate).toLocaleDateString() : '-'}</span>
           </div>
         </div>
 
@@ -115,6 +116,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
             <div className="flex space-x-2">
               {task.status === 'pending' && (
                 <button
+                  type="button"
                   onClick={() => handleStatusChange('in_progress')}
                   className="flex items-center px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs"
                 >
@@ -124,6 +126,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
               )}
               {task.status === 'in_progress' && (
                 <button
+                  type="button"
                   onClick={() => handleStatusChange('completed')}
                   className="flex items-center px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-xs"
                 >
@@ -133,11 +136,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, onEdit, onDelete }) =>
               )}
             </div>
           )}
-
         </div>
 
         <div className="text-xs text-gray-500">
-          Assigned by {assignedByUser?.name} • {new Date(task.createdAt).toLocaleDateString()}
+          Assigned by {assignedByUser?.name || assignedByUser?.username || assignedByUser?.email || 'Unknown User'} •{' '}
+          {task.createdAt ? new Date(task.createdAt).toLocaleDateString() : '-'}
         </div>
       </div>
     </div>

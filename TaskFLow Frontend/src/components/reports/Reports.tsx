@@ -19,15 +19,15 @@ export const Reports: React.FC = () => {
     total: monthlyTasks.length,
     completed: monthlyTasks.filter(t => t.status === 'completed').length,
     pending: monthlyTasks.filter(t => t.status === 'pending').length,
-    inProgress: monthlyTasks.filter(t => t.status === 'in-progress').length,
+    inProgress: monthlyTasks.filter(t => t.status === 'in_progress').length,
   };
 
-  const userTaskStats = users.map(u => ({
+const userTaskStats = (users || []).map(u => ({
     user: u,
     assigned: tasks.filter(t => t.assignedTo === u.id).length,
     completed: tasks.filter(t => t.assignedTo === u.id && t.status === 'completed').length,
     pending: tasks.filter(t => t.assignedTo === u.id && t.status === 'pending').length,
-    inProgress: tasks.filter(t => t.assignedTo === u.id && t.status === 'in-progress').length,
+    inProgress: tasks.filter(t => t.assignedTo === u.id && t.status === 'in_progress').length,
   }));
 
   const priorityStats = {

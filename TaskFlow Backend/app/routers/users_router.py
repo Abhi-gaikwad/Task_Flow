@@ -346,11 +346,8 @@ def create_user(
         # Super admin can create any user
         pass
     elif current_user.role == UserRole.ADMIN:
-        # Admin can only create users for their company
         if user_data.company_id != current_user.company_id:
             raise HTTPException(status_code=403, detail="Can only create users for your company")
-        if user_data.role != UserRole.USER:
-            raise HTTPException(status_code=403, detail="Can only create users with USER role")
     else:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     

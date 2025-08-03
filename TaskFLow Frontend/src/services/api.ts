@@ -191,29 +191,127 @@ export const authAPI = {
 
 // Users API
 export const usersAPI = {
-  listUsers: async (params: { 
-    limit?: number; 
-    is_active?: boolean;
+  getUsers: async (params?: {
+    skip?: number;
+    limit?: number;
     company_id?: number;
-  }) => {
-    const response = await api.get('/users', { params });
-    return response.data;
+    role?: string;
+    is_active?: boolean;
+  }): Promise<User[]> => {
+    try {
+      const response: AxiosResponse<User[]> = await api.get('/users', { params });
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
   },
-  
-  activateUser: async (userId: number) => {
-    const response = await api.post(`/users/${userId}/activate`);
-    return response.data;
+
+  getUser: async (userId: string | number): Promise<User> => {
+    try {
+      const response: AxiosResponse<User> = await api.get(`/users/${userId}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
   },
-  
-  deleteUser: async (userId: number) => {
-    const response = await api.delete(`/users/${userId}`);
-    return response.data;
+
+  createUser: async (data: {
+    email: string;
+    username: string;
+    password: string;
+    role?: string;
+    company_id?: number;
+    is_active?: boolean;
+    full_name?: string;
+    phone_number?: string;
+    department?: string;
+    can_assign_tasks?: boolean;
+  }): Promise<User> => {
+    try {
+      const response: AxiosResponse<User> = await api.post('/users', data);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
   },
-  
-  updateUser: async (userId: number, data: any) => {
-    const response = await api.put(`/users/${userId}`, data);
-    return response.data;
-  }
+
+  updateUser: async (
+    userId: string | number,
+    updates: Partial<{
+      email: string;
+      username: string;
+      password: string;
+      role: string;
+      company_id: number;
+      is_active: boolean;
+      full_name: string;
+      phone_number: string;
+      department: string;
+      can_assign_tasks: boolean;
+      canAssignTasks: boolean;
+      isActive: boolean;
+    }>
+  ): Promise<User> => {
+    try {
+      const backendUpdates: any = { ...updates };
+      if ('canAssignTasks' in updates) {
+        backendUpdates.can_assign_tasks = updates.canAssignTasks;
+        delete backendUpdates.canAssignTasks;
+      }
+      if ('isActive' in updates) {
+        backendUpdates.is_active = updates.isActive;
+        delete backendUpdates.isActive;
+      }
+
+      const response: AxiosResponse<User> = await api.put(`/users/${userId}`, backendUpdates);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  },
+
+  deleteUser: async (userId: string | number): Promise<{ message: string }> => {
+    try {
+      const response: AxiosResponse<{ message: string }> = await api.delete(`/users/${userId}`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  },
+
+  activateUser: async (userId: string | number): Promise<{ message: string }> => {
+    try {
+      const response: AxiosResponse<{ message: string }> = await api.post(`/users/${userId}/activate`);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  },
+
+  getProfile: async (): Promise<User> => {
+    try {
+      const response: AxiosResponse<User> = await api.get('/profile');
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  },
+
+  updateProfile: async (updates: Partial<{
+    email: string;
+    username: string;
+    password: string;
+    full_name: string;
+    phone_number: string;
+    department: string;
+  }>): Promise<User> => {
+    try {
+      const response: AxiosResponse<User> = await api.put('/profile', updates);
+      return response.data;
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  },
 };
 
 // Company API

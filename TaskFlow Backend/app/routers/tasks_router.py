@@ -6,10 +6,33 @@ from app.auth import get_current_user
 from app.models import User, Task, UserRole, TaskStatus, NotificationType
 from app.schemas import TaskCreate, TaskUpdate, TaskResponse
 from app.database import get_db
-from .notifications_router import create_notification  # Make sure this path is valid
+from .notifications_router import create_notification  # Adapt import as needed
 
 router = APIRouter()
 
+# ---------------------------
+# Utility: Map virtual admin to real admin's positive user ID
+# ---------------------------
+def resolve_creator_id(current_user: User, db: Session) -> tuple[int, str]:
+    # If user is virtual (company admin, negative ID), resolve to real admin
+    if current_user.id < 0:
+        company_admin = db.query(User).filter(
+            User.company_id == current_user.company_id,
+            User.role == UserRole.ADMIN,
+            User.is_active == True
+        ).first()
+        if not company_admin:
+            raise HTTPException(
+                status_code=500,
+                detail="No real admin user found for company."
+            )
+        return company_admin.id, company_admin.username
+    else:
+        return current_user.id, current_user.username
+
+# ---------------------------
+# Create Task
+# ---------------------------
 @router.post("/tasks", response_model=TaskResponse)
 def allocate_task(
     task_data: TaskCreate,
@@ -24,11 +47,27 @@ def allocate_task(
     if current_user.role != UserRole.SUPER_ADMIN:
         if assignee.company_id != current_user.company_id:
             raise HTTPException(status_code=403, detail="Cannot assign tasks to users from other companies")
+
+    # THIS IS THE FIX: If company admin is virtual (negative id), resolve to real admin!
+    if current_user.id < 0:
+        company_admin = db.query(User).filter(
+            User.company_id == current_user.company_id,
+            User.role == UserRole.ADMIN,
+            User.is_active == True
+        ).first()
+        if not company_admin:
+            raise HTTPException(status_code=500, detail="No real admin user found for company")
+        created_by_id = company_admin.id
+        creator_name = company_admin.username
+    else:
+        created_by_id = current_user.id
+        creator_name = current_user.username
+
     task = Task(
         title=task_data.title,
         description=task_data.description,
         assigned_to_id=task_data.assigned_to_id,
-        created_by=current_user.id,
+        created_by=created_by_id,    # Always a real existing user id for FK!
         company_id=assignee.company_id,
         due_date=task_data.due_date,
         priority=task_data.priority,
@@ -39,7 +78,7 @@ def allocate_task(
     db.refresh(task)
     task_response = TaskResponse.model_validate(task)
     task_response.assignee_name = assignee.username
-    task_response.creator_name = current_user.username
+    task_response.creator_name = creator_name
     create_notification(
         db=db,
         user_id=assignee.id,
@@ -50,6 +89,9 @@ def allocate_task(
     )
     return task_response
 
+# ---------------------------
+# Get My Tasks
+# ---------------------------
 @router.get("/my-tasks", response_model=List[TaskResponse])
 def get_my_allocated_tasks(
     status: Optional[TaskStatus] = Query(None),
@@ -71,6 +113,9 @@ def get_my_allocated_tasks(
         task_responses.append(task_response)
     return task_responses
 
+# ---------------------------
+# Update Task Status
+# ---------------------------
 @router.put("/tasks/{task_id}/status", response_model=TaskResponse)
 def update_task_status(
     task_id: int,
@@ -112,6 +157,9 @@ def update_task_status(
     task_response.creator_name = creator.username if creator else "Unknown"
     return task_response
 
+# ---------------------------
+# Update Task (full)
+# ---------------------------
 @router.put("/tasks/{task_id}", response_model=TaskResponse)
 def update_task(
     task_id: int,
@@ -145,6 +193,9 @@ def update_task(
     task_response.creator_name = creator.username if creator else "Unknown"
     return task_response
 
+# ---------------------------
+# List All Tasks (admin queries all company, users see own)
+# ---------------------------
 @router.get("/tasks", response_model=List[TaskResponse])
 def list_all_tasks(
     status: Optional[TaskStatus] = Query(None),

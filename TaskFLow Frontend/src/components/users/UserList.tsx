@@ -32,7 +32,7 @@ export const UserList: React.FC = () => {
       
       // For super admin, we want to get company admins
       // For regular admin, we want to get users in their company
-      const usersData = await usersAPI.listUsers({
+      const usersData = await usersAPI.getUsers({
         limit: 100,
         is_active: undefined,
         // The backend will filter appropriately based on the logged-in user's role
