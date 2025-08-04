@@ -1,4 +1,4 @@
-# app/auth.py - Enhanced with static superadmin support
+# app/auth.py - Enhanced with static superadmin and company role support
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from passlib.context import CryptContext
@@ -69,7 +69,7 @@ def authenticate_user(db: Session, email: str, password: str) -> User | None:
 
 def authenticate_company(db: Session, company_username: str, company_password: str) -> User:
     """
-    Authenticate a company and return a virtual admin user
+    Authenticate a company and return a virtual COMPANY role user
     """
     print(f"[DEBUG] Company login attempt - Username: {company_username}")
     
@@ -113,18 +113,18 @@ def authenticate_company(db: Session, company_username: str, company_password: s
             detail="This company account is inactive."
         )
     
-    # Create virtual admin user using NEGATIVE ID to avoid conflicts
-    virtual_user_id = -(company.id)  # Negative ID for virtual users
-    print(f"[DEBUG] Creating virtual admin user with ID: {virtual_user_id}")
+    # Create virtual COMPANY role user using NEGATIVE ID to avoid conflicts
+    virtual_user_id = -(company.id + 1000)  # Offset to distinguish from old admin users
+    print(f"[DEBUG] Creating virtual company user with ID: {virtual_user_id}")
     
     # Use a valid email format that passes Pydantic validation
     virtual_email = f"company{company.id}@virtual.example.com"
     
-    virtual_admin_user = User(
+    virtual_company_user = User(
         id=virtual_user_id,
-        email=virtual_email,  # Changed to use .example.com which is valid
-        username=f"{company.company_username}_admin",
-        role=UserRole.ADMIN,
+        email=virtual_email,
+        username=f"{company.company_username}_company",
+        role=UserRole.COMPANY,  # Changed from ADMIN to COMPANY
         company_id=company.id,
         is_active=True,
         hashed_password="virtual-user-no-password",
@@ -132,10 +132,10 @@ def authenticate_company(db: Session, company_username: str, company_password: s
     )
     
     # Attach company object for frontend use
-    virtual_admin_user.company = company
+    virtual_company_user.company = company
     
-    print(f"[DEBUG] Virtual admin user created with email: {virtual_email}")
-    return virtual_admin_user
+    print(f"[DEBUG] Virtual company user created with email: {virtual_email}")
+    return virtual_company_user
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
@@ -159,10 +159,10 @@ def get_current_user(
         print(f"[DEBUG] Static superadmin token validation")
         return create_static_superadmin_user()
     
-    # Handle virtual company admin users (other negative IDs)
-    if uid < 0:
-        company_id = abs(uid)  # Convert negative ID back to company ID
-        print(f"[DEBUG] Virtual user detected, company ID: {company_id}")
+    # Handle virtual company users (negative IDs > -1000)
+    if uid <= -1000:
+        company_id = abs(uid) - 1000  # Convert back to company ID
+        print(f"[DEBUG] Virtual company user detected, company ID: {company_id}")
         
         company = db.query(Company).filter(Company.id == company_id).first()
         if not company:
@@ -172,12 +172,43 @@ def get_current_user(
             print(f"[DEBUG] Company inactive for virtual user: {company_id}")
             raise cred_exc
         
-        # Recreate virtual admin user with same email format
+        # Recreate virtual company user with same email format
+        virtual_email = f"company{company.id}@virtual.example.com"
+        
+        virtual_company_user = User(
+            id=uid,  # Keep the negative ID
+            email=virtual_email,
+            username=f"{company.company_username}_company",
+            role=UserRole.COMPANY,
+            company_id=company.id,
+            is_active=True,
+            hashed_password="virtual-user-no-password",
+            created_at=company.created_at or datetime.utcnow()
+        )
+        virtual_company_user.company = company
+        
+        print(f"[DEBUG] Virtual company user recreated for token validation")
+        return virtual_company_user
+    
+    # Handle legacy virtual admin users (negative IDs -1 to -999)
+    if uid < 0 and uid > -1000:
+        company_id = abs(uid)  # Convert negative ID back to company ID
+        print(f"[DEBUG] Legacy virtual admin user detected, company ID: {company_id}")
+        
+        company = db.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            print(f"[DEBUG] Company not found for legacy virtual user: {company_id}")
+            raise cred_exc
+        if not company.is_active:
+            print(f"[DEBUG] Company inactive for legacy virtual user: {company_id}")
+            raise cred_exc
+        
+        # Recreate legacy virtual admin user with same email format
         virtual_email = f"company{company.id}@virtual.example.com"
         
         virtual_admin_user = User(
             id=uid,  # Keep the negative ID
-            email=virtual_email,  # Use same valid email format
+            email=virtual_email,
             username=f"{company.company_username}_admin",
             role=UserRole.ADMIN,
             company_id=company.id,
@@ -187,7 +218,7 @@ def get_current_user(
         )
         virtual_admin_user.company = company
         
-        print(f"[DEBUG] Virtual admin user recreated for token validation")
+        print(f"[DEBUG] Legacy virtual admin user recreated for token validation")
         return virtual_admin_user
     
     # Handle real users (positive IDs)
@@ -209,4 +240,22 @@ def require(role: UserRole):
         return user
     return _guard
 
+def require_company_or_admin():
+    """Allow both COMPANY and ADMIN roles"""
+    def _guard(user: User = Depends(get_current_user)):
+        if user.role not in [UserRole.COMPANY, UserRole.ADMIN]:
+            raise HTTPException(status_code=403, detail="Company or Admin role required")
+        return user
+    return _guard
+
+def require_company_admin_or_super():
+    """Allow COMPANY, ADMIN, or SUPER_ADMIN roles"""
+    def _guard(user: User = Depends(get_current_user)):
+        if user.role not in [UserRole.COMPANY, UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+            raise HTTPException(status_code=403, detail="Company, Admin, or Super Admin role required")
+        return user
+    return _guard
+
 super_admin_only = require(UserRole.SUPER_ADMIN)
+company_only = require(UserRole.COMPANY)
+admin_only = require(UserRole.ADMIN)

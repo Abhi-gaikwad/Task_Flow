@@ -27,12 +27,37 @@ export const Sidebar: React.FC = () => {
       label: 'Users',
       href: '/users',
       icon: Users,
-      show: user?.role === 'admin' && canManageUsers,
+      show: (user?.role === 'admin' || user?.role === 'company') && canManageUsers,
     },
     { label: 'Reports', href: '/reports', icon: BarChart3, show: user?.role !== 'super_admin' },
     { label: 'Notifications', href: '/notifications', icon: Bell, show: true },
     { label: 'Settings', href: '/settings', icon: Settings, show: true },
   ];
+
+  const getRoleDisplay = (role: string) => {
+    switch (role) {
+      case 'super_admin':
+        return 'Super Admin';
+      case 'company':
+        return 'Company';
+      case 'admin':
+        return 'Admin';
+      case 'user':
+        return 'User';
+      default:
+        return role?.replace('_', ' ') || 'User';
+    }
+  };
+
+  // Function to get display name for company users
+  const getDisplayName = () => {
+    if (user?.role === 'company') {
+      // For company role users, show the company name instead of the virtual username
+      return user?.company?.name || 'Company User';
+    }
+    // For other users, show their actual name or username
+    return user?.name || user?.username || 'User';
+  };
 
   return (
     <div className="w-64 bg-white shadow-lg h-screen flex flex-col border-r border-gray-200">
@@ -89,14 +114,14 @@ export const Sidebar: React.FC = () => {
           <img
             src={
               user?.avatar ||
-              `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'User')}&background=random`
+              `https://ui-avatars.com/api/?name=${encodeURIComponent(getDisplayName())}&background=random`
             }
-            alt={`${user?.name || 'User'}'s avatar`}
+            alt={`${getDisplayName()}'s avatar`}
             className="w-10 h-10 rounded-full object-cover"
           />
           <div className="flex-1">
-            <p className="text-sm font-medium text-gray-900">{user?.name}</p>
-            <p className="text-xs text-gray-500 capitalize">{user?.role?.replace('_', '')}</p>
+            <p className="text-sm font-medium text-gray-900">{getDisplayName()}</p>
+            <p className="text-xs text-gray-500">{getRoleDisplay(user?.role || '')}</p>
           </div>
         </div>
         <button

@@ -55,7 +55,12 @@ class UserResponse(UserBase):
 
     model_config = {"from_attributes": True}
 
-# Removed: AdminUserCreate schema is no longer needed
+# Schema for creating admin users by company role
+class CompanyAdminCreate(BaseModel):
+    email: EmailStr
+    username: str
+    password: str
+    full_name: Optional[str] = None
 
 # -----------------
 # TASK SCHEMAS
@@ -108,4 +113,3 @@ class NotificationResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
-

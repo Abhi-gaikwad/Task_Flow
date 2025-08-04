@@ -10,6 +10,7 @@ import enum
 # ---------- ENUMS -------------------------------------------------
 class UserRole(enum.Enum):
     SUPER_ADMIN = "super_admin"
+    COMPANY     = "company"      # New role for company login
     ADMIN       = "admin"
     USER        = "user"
 

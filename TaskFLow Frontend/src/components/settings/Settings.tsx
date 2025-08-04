@@ -29,6 +29,36 @@ export const Settings: React.FC = () => {
     }
   };
 
+  const getRoleDisplay = (role: string) => {
+    switch (role) {
+      case 'super_admin':
+        return 'Super Admin';
+      case 'company':
+        return 'Company';
+      case 'admin':
+        return 'Admin';
+      case 'user':
+        return 'User';
+      default:
+        return role?.replace('_', ' ') || 'User';
+    }
+  };
+
+  const getRoleBadgeClass = (role: string) => {
+    switch (role) {
+      case 'super_admin':
+        return 'bg-red-100 text-red-800';
+      case 'company':
+        return 'bg-blue-100 text-blue-800';
+      case 'admin':
+        return 'bg-purple-100 text-purple-800';
+      case 'user':
+        return 'bg-gray-100 text-gray-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -71,10 +101,8 @@ export const Settings: React.FC = () => {
                 </label>
                 <div className="flex items-center space-x-2">
                   <Shield className="w-4 h-4 text-gray-400" />
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                    user?.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
-                  }`}>
-                    {user?.role === 'admin' ? 'Administrator' : 'User'}
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${getRoleBadgeClass(user?.role || '')}`}>
+                    {getRoleDisplay(user?.role || '')}
                   </span>
                 </div>
               </div>
@@ -186,10 +214,18 @@ export const Settings: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Role</span>
-                <span className="text-sm font-medium text-gray-900 capitalize">
-                  {user?.role}
+                <span className="text-sm font-medium text-gray-900">
+                  {getRoleDisplay(user?.role || '')}
                 </span>
               </div>
+              {user?.company && (
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Company</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    {user.company.name}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>

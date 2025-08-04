@@ -412,5 +412,194 @@ export const handleApiError = (error: any): string => {
   
   return 'An unexpected error occurred. Please try again.';
 };
+// Add this to your existing api.ts file - Tasks API section
 
+// Tasks API - Enhanced with bulk creation
+export const tasksAPI = {
+  // Create single task (existing)
+  createTask: async (data: {
+    title: string;
+    description?: string;
+    assigned_to_id: number;
+    due_date?: string;
+    priority?: string;
+  }) => {
+    console.log('[API] Creating single task:', {
+      title: data.title,
+      assigned_to_id: data.assigned_to_id,
+      priority: data.priority
+    });
+    
+    try {
+      const response = await api.post('/tasks', data);
+      console.log('[API] Single task created successfully:', response.data.id);
+      return response.data;
+    } catch (error: any) {
+      console.error('[API] Failed to create single task:', error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // NEW: Create bulk tasks
+  createBulkTasks: async (data: {
+    title: string;
+    description?: string;
+    assigned_to_ids: number[];
+    due_date?: string;
+    priority?: string;
+  }) => {
+    console.log('[API] Creating bulk tasks:', {
+      title: data.title,
+      assigned_to_ids: data.assigned_to_ids,
+      user_count: data.assigned_to_ids.length,
+      priority: data.priority
+    });
+    
+    try {
+      const response = await api.post('/tasks/bulk', data);
+      console.log('[API] Bulk tasks created:', {
+        successful: response.data.success_count,
+        failed: response.data.failure_count,
+        total: response.data.total_attempted
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('[API] Failed to create bulk tasks:', error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Get user's tasks
+  getMyTasks: async (params?: {
+    status?: string;
+    skip?: number;
+    limit?: number;
+  }) => {
+    console.log('[API] Getting my tasks with params:', params);
+    
+    try {
+      const response = await api.get('/my-tasks', { params });
+      console.log('[API] Retrieved tasks:', response.data.length);
+      return response.data;
+    } catch (error: any) {
+      console.error('[API] Failed to get my tasks:', error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Get all tasks (admin view)
+  getAllTasks: async (params?: {
+    status?: string;
+    assigned_to_id?: number;
+    created_by?: number;
+    skip?: number;
+    limit?: number;
+  }) => {
+    console.log('[API] Getting all tasks with params:', params);
+    
+    try {
+      const response = await api.get('/tasks', { params });
+      console.log('[API] Retrieved all tasks:', response.data.length);
+      return response.data;
+    } catch (error: any) {
+      console.error('[API] Failed to get all tasks:', error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Update task status
+  updateTaskStatus: async (taskId: number, status: string) => {
+    console.log('[API] Updating task status:', { taskId, status });
+    
+    try {
+      const response = await api.put(`/tasks/${taskId}/status?status=${status}`);
+      console.log('[API] Task status updated successfully');
+      return response.data;
+    } catch (error: any) {
+      console.error('[API] Failed to update task status:', error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Update task (full update)
+  updateTask: async (taskId: number, updates: {
+    title?: string;
+    description?: string;
+    status?: string;
+    due_date?: string;
+  }) => {
+    console.log('[API] Updating task:', { taskId, updates });
+    
+    try {
+      const response = await api.put(`/tasks/${taskId}`, updates);
+      console.log('[API] Task updated successfully');
+      return response.data;
+    } catch (error: any) {
+      console.error('[API] Failed to update task:', error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  // Delete task (if you have this endpoint)
+  deleteTask: async (taskId: number) => {
+    console.log('[API] Deleting task:', taskId);
+    
+    try {
+      const response = await api.delete(`/tasks/${taskId}`);
+      console.log('[API] Task deleted successfully');
+      return response.data;
+    } catch (error: any) {
+      console.error('[API] Failed to delete task:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+};
+
+// Type definitions for TypeScript support
+export interface Task {
+  id: number;
+  title: string;
+  description?: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  assigned_to_id: number;
+  created_by: number;
+  company_id: number;
+  created_at: string;
+  due_date?: string;
+  completed_at?: string;
+  assignee_name?: string;
+  creator_name?: string;
+}
+
+export interface BulkTaskResponse {
+  successful: Task[];
+  failed: Array<{
+    user_id: number;
+    error: string;
+  }>;
+  total_attempted: number;
+  success_count: number;
+  failure_count: number;
+}
+
+export interface User {
+  id: number;
+  email: string;
+  username: string;
+  role: string;
+  company_id?: number;
+  is_active: boolean;
+  created_at: string;
+  full_name?: string;
+  phone_number?: string;
+  department?: string;
+  can_assign_tasks?: boolean;
+  company?: {
+    id: number;
+    name: string;
+    description?: string;
+    is_active: boolean;
+  };
+}
 export default api;
