@@ -52,7 +52,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    priority: 'medium' as Task['priority'],
+    priority: '' as Task['priority'],
     dueDate: '',
     reminderSet: '',
     tags: '',
@@ -317,7 +317,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
       setFormData({
         title: '',
         description: '',
-        priority: 'medium',
+        priority: '',
         dueDate: '',
         reminderSet: '',
         tags: '',

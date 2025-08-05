@@ -73,11 +73,20 @@ class TaskCreate(BaseModel):
     due_date: Optional[datetime] = None
     priority: TaskPriority = TaskPriority.MEDIUM
 
+# NEW: Bulk task creation schema
+class BulkTaskCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    assigned_to_ids: List[int]
+    due_date: Optional[datetime] = None
+    priority: TaskPriority = TaskPriority.MEDIUM
+
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[TaskStatus] = None
     due_date: Optional[datetime] = None
+    priority: Optional[TaskPriority] = None
 
 class TaskResponse(BaseModel):
     id: int
@@ -97,6 +106,18 @@ class TaskResponse(BaseModel):
     creator_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+# NEW: Bulk task response schemas
+class BulkTaskFailure(BaseModel):
+    user_id: int
+    error: str
+
+class BulkTaskResponse(BaseModel):
+    successful: List[TaskResponse]
+    failed: List[BulkTaskFailure]
+    total_attempted: int
+    success_count: int
+    failure_count: int
 
 # -----------------
 # NOTIFICATION SCHEMAS

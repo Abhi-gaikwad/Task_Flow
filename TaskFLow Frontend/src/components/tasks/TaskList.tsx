@@ -1,5 +1,7 @@
+// src/components/tasks/TaskList.tsx
+
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, Plus } from 'lucide-react';
+import { Search, Filter, Plus, ChevronDown, CheckCircle, Clock, User, UserCheck } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { TaskCard } from './TaskCard';
@@ -15,6 +17,8 @@ export const TaskList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
+  const [assignmentFilter, setAssignmentFilter] = useState<'all' | 'assigned_to_me' | 'assigned_by_me'>('all');
+  const [showFilters, setShowFilters] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,7 +50,7 @@ export const TaskList: React.FC = () => {
         id: task.id.toString(),
         title: task.title,
         description: task.description || '',
-        priority: 'medium' as Task['priority'],
+        priority: task.priority || ('medium' as Task['priority']),
         status: task.status === 'in_progress' ? 'in-progress' :
           (task.status || 'pending') as 'pending' | 'in-progress' | 'completed',
         assignedTo: task.assigned_to_id?.toString() || '',
@@ -78,14 +82,26 @@ export const TaskList: React.FC = () => {
     const matchesStatus = statusFilter === 'all' || task.status === statusFilter;
     const matchesPriority = priorityFilter === 'all' || task.priority === priorityFilter;
 
+    // Assignment filter logic
+    let matchesAssignment = true;
+    if (assignmentFilter === 'assigned_to_me') {
+      matchesAssignment = task.assignedTo === user?.id?.toString();
+    } else if (assignmentFilter === 'assigned_by_me') {
+      matchesAssignment = task.assignedBy === user?.id?.toString();
+    }
+
+    // Role-based visibility
     let matchesUser = true;
     if (user?.role !== 'admin') {
       matchesUser = task.assignedTo === user?.id?.toString() || task.assignedBy === user?.id?.toString();
     }
 
-    return matchesSearch && matchesStatus && matchesPriority && matchesUser;
+    return matchesSearch && matchesStatus && matchesPriority && matchesAssignment && matchesUser;
   });
 
+  // Separate tasks based on assignment
+  const assignedToMeTasks = filteredTasks.filter(task => task.assignedTo === user?.id?.toString());
+  const assignedByMeTasks = filteredTasks.filter(task => task.assignedBy === user?.id?.toString());
 
   const handleCreateTask = async () => {
     try {
@@ -112,7 +128,7 @@ export const TaskList: React.FC = () => {
       if (response.ok) {
         await fetchTasks();
         addNotification({
-          type: 'task_created', // Use existing type instead of 'task_deleted'
+          type: 'task_created',
           title: 'Task Deleted',
           message: 'Task has been deleted successfully',
           userId: user?.id || '',
@@ -127,8 +143,38 @@ export const TaskList: React.FC = () => {
     }
   };
 
-  const handleTaskUpdated = async () => {
-    await fetchTasks();
+  const getTaskCountsByFilter = () => {
+    const all = filteredTasks.length;
+    const assignedToMe = assignedToMeTasks.length;
+    const assignedByMe = assignedByMeTasks.length;
+    
+    return { all, assignedToMe, assignedByMe };
+  };
+
+  const renderTaskSection = (sectionTasks: Task[], title: string, icon: React.ReactNode) => {
+    if (sectionTasks.length === 0) return null;
+
+    return (
+      <div className="mb-8">
+        <div className="flex items-center mb-4">
+          {icon}
+          <h2 className="text-lg font-semibold text-gray-800 ml-2">{title}</h2>
+          <span className="ml-2 bg-blue-100 text-blue-800 text-sm font-medium px-2.5 py-0.5 rounded-full">
+            {sectionTasks.length}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {sectionTasks.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              onEdit={handleEditTask}
+              onDelete={handleDeleteTask}
+            />
+          ))}
+        </div>
+      </div>
+    );
   };
 
   if (loading) {
@@ -148,6 +194,8 @@ export const TaskList: React.FC = () => {
     );
   }
 
+  const taskCounts = getTaskCountsByFilter();
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -165,6 +213,7 @@ export const TaskList: React.FC = () => {
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+        {/* Search and Filter Toggle */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -176,31 +225,70 @@ export const TaskList: React.FC = () => {
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <div className="flex space-x-3">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="in-progress">In Progress</option>
-              <option value="completed">Completed</option>
-            </select>
-            <select
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Priority</option>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
-          </div>
+          <Button
+            variant="secondary"
+            icon={Filter}
+            onClick={() => setShowFilters(!showFilters)}
+            className="flex items-center"
+          >
+            Filters
+            <ChevronDown className={`ml-2 w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
+          </Button>
         </div>
 
+        {/* Filter Panel */}
+        {showFilters && (
+          <div className="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Assignment Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Assignment</label>
+                <select
+                  value={assignmentFilter}
+                  onChange={(e) => setAssignmentFilter(e.target.value as 'all' | 'assigned_to_me' | 'assigned_by_me')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">All Tasks ({taskCounts.all})</option>
+                  <option value="assigned_to_me">Assigned to Me ({taskCounts.assignedToMe})</option>
+                  <option value="assigned_by_me">Assigned by Me ({taskCounts.assignedByMe})</option>
+                </select>
+              </div>
+
+              {/* Status Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">All Status</option>
+                  <option value="pending">Pending</option>
+                  <option value="in-progress">In Progress</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </div>
+
+              {/* Priority Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+                <select
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">All Priority</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-blue-50 p-4 rounded-lg">
             <p className="text-sm text-blue-600">Total Tasks</p>
@@ -226,19 +314,55 @@ export const TaskList: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredTasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              onEdit={handleEditTask}
-              onDelete={handleDeleteTask}
-            // Temporarily removed onTaskUpdated to avoid TypeScript error
-            // onTaskUpdated={handleTaskUpdated}
-            />
-          ))}
+        {/* Task Sections */}
+        <div>
+          {assignmentFilter === 'all' && (
+            <>
+              {renderTaskSection(
+                assignedToMeTasks,
+                "Tasks Assigned to Me",
+                <User className="w-5 h-5 text-blue-600" />
+              )}
+              {renderTaskSection(
+                assignedByMeTasks,
+                "Tasks Assigned by Me",
+                <UserCheck className="w-5 h-5 text-green-600" />
+              )}
+            </>
+          )}
+
+          {assignmentFilter === 'assigned_to_me' && (
+            renderTaskSection(
+              assignedToMeTasks,
+              "Tasks Assigned to Me",
+              <User className="w-5 h-5 text-blue-600" />
+            )
+          )}
+
+          {assignmentFilter === 'assigned_by_me' && (
+            renderTaskSection(
+              assignedByMeTasks,
+              "Tasks Assigned by Me",
+              <UserCheck className="w-5 h-5 text-green-600" />
+            )
+          )}
+
+          {/* Show single grid when no specific filter */}
+          {assignmentFilter === 'all' && assignedToMeTasks.length === 0 && assignedByMeTasks.length === 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredTasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  onEdit={handleEditTask}
+                  onDelete={handleDeleteTask}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
+        {/* Empty State */}
         {filteredTasks.length === 0 && !loading && (
           <div className="text-center py-12">
             <div className="text-gray-400 mb-4">
@@ -246,7 +370,7 @@ export const TaskList: React.FC = () => {
             </div>
             <p className="text-gray-500 text-lg mb-2">No tasks found</p>
             <p className="text-gray-400">
-              {statusFilter !== 'all' || priorityFilter !== 'all' || searchTerm
+              {statusFilter !== 'all' || priorityFilter !== 'all' || searchTerm || assignmentFilter !== 'all'
                 ? 'Try adjusting your filters or search terms'
                 : user?.role === 'admin'
                   ? 'Create your first task to get started'
