@@ -12,7 +12,7 @@ import {
   CheckSquare,
 } from 'lucide-react';
 import { useAuth, usePermissions } from '../../contexts/AuthContext';
-import logo from '../../assets/logo.png'; // Ensure this file really exists in /src/assets/
+import logo from '../../assets/logoNew.jpg'; // Ensure this file really exists in /src/assets/
 
 export const Sidebar: React.FC = () => {
   const { user, logout } = useAuth();
