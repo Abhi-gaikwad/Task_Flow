@@ -166,7 +166,7 @@ def list_users(
     """
     print(f"[DEBUG] Listing users for {current_user.id} (role: {current_user.role})")
     
-    if current_user.role == UserRole.USER:
+    if current_user.role == UserRole.USER and (current_user.can_assign_tasks == False ):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     query = db.query(User)
@@ -212,6 +212,7 @@ def get_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    
     # Permission checks
     if current_user.role == UserRole.SUPER_ADMIN:
         # Super admin can view any user
