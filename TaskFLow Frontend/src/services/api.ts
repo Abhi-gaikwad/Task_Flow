@@ -1,5 +1,5 @@
 // src/services/api.ts - Enhanced with comprehensive debugging and error handling
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
 
 const api = axios.create({
   baseURL: 'http://localhost:8000/api/v1',
@@ -9,10 +9,10 @@ const api = axios.create({
   timeout: 10000, // 10 second timeout
 });
 
-// Static SuperAdmin credentials for development/demo purposes
+// Static SuperAdmin credentials matching backend
 export const STATIC_SUPERADMIN_CREDENTIALS = {
-  email: 'superadmin@taskflow.com',
-  password: '123'
+  email: 'superadmin@test.com', // This matches your backend STATIC_SUPERADMIN_EMAIL
+  password: '123' // This matches your backend STATIC_SUPERADMIN_PASSWORD
 };
 
 // Add request interceptor to include auth token
@@ -71,7 +71,7 @@ export const authAPI = {
   /**
    * Regular user login (includes static superadmin)
    * For SuperAdmin access, use:
-   * - Email: superadmin@taskflow.com
+   * - Email: superadmin@test.com
    * - Password: 123
    */
   login: async (email: string, password: string) => {
@@ -248,8 +248,8 @@ export const usersAPI = {
       phone_number: string;
       department: string;
       can_assign_tasks: boolean;
-      canAssignTasks: boolean;
-      isActive: boolean;
+      canAssignTasks: boolean; // For frontend compatibility
+      isActive: boolean; // For frontend compatibility
     }>
   ): Promise<User> => {
     try {
@@ -353,70 +353,9 @@ export const companyAPI = {
   },
 };
 
-export const handleApiError = (error: any): string => {
-  console.log('[API] Handling API Error:', {
-    hasResponse: !!error.response,
-    status: error.response?.status,
-    data: error.response?.data,
-    message: error.message,
-    code: error.code
-  });
-  
-  // Handle network errors
-  if (error.code === 'NETWORK_ERROR' || error.code === 'ECONNABORTED') {
-    return 'Network error. Please check your connection and try again.';
-  }
-  
-  // Handle timeout errors
-  if (error.code === 'ECONNABORTED' && error.message.includes('timeout')) {
-    return 'Request timed out. Please try again.';
-  }
-  
-  // Handle response errors
-  if (error.response?.data?.detail) {
-    if (typeof error.response.data.detail === 'string') {
-      return error.response.data.detail;
-    }
-    
-    if (Array.isArray(error.response.data.detail)) {
-      return error.response.data.detail
-        .map((err: any) => err.msg || err.message || String(err))
-        .join(', ');
-    }
-  }
-  
-  if (error.response?.data?.message) {
-    return error.response.data.message;
-  }
-  
-  // Handle specific status codes
-  if (error.response?.status === 500) {
-    return 'Server error. Please try again later.';
-  }
-  
-  if (error.response?.status === 404) {
-    return 'The requested resource was not found.';
-  }
-  
-  if (error.response?.status === 403) {
-    return 'You do not have permission to access this resource.';
-  }
-  
-  if (error.response?.status === 401) {
-    return 'Authentication failed. Please check your credentials.';
-  }
-  
-  if (error.message) {
-    return error.message;
-  }
-  
-  return 'An unexpected error occurred. Please try again.';
-};
-// Add this to your existing api.ts file - Tasks API section
-
 // Tasks API - Enhanced with bulk creation
 export const tasksAPI = {
-  // Create single task (existing)
+  // Create single task
   createTask: async (data: {
     title: string;
     description?: string;
@@ -440,7 +379,7 @@ export const tasksAPI = {
     }
   },
 
-  // NEW: Create bulk tasks
+  // Create bulk tasks
   createBulkTasks: async (data: {
     title: string;
     description?: string;
@@ -540,7 +479,7 @@ export const tasksAPI = {
     }
   },
 
-  // Delete task (if you have this endpoint)
+  // Delete task
   deleteTask: async (taskId: number) => {
     console.log('[API] Deleting task:', taskId);
     
@@ -553,6 +492,66 @@ export const tasksAPI = {
       throw error;
     }
   }
+};
+
+export const handleApiError = (error: any): string => {
+  console.log('[API] Handling API Error:', {
+    hasResponse: !!error.response,
+    status: error.response?.status,
+    data: error.response?.data,
+    message: error.message,
+    code: error.code
+  });
+  
+  // Handle network errors
+  if (error.code === 'NETWORK_ERROR' || error.code === 'ECONNABORTED') {
+    return 'Network error. Please check your connection and try again.';
+  }
+  
+  // Handle timeout errors
+  if (error.code === 'ECONNABORTED' && error.message.includes('timeout')) {
+    return 'Request timed out. Please try again.';
+  }
+  
+  // Handle response errors
+  if (error.response?.data?.detail) {
+    if (typeof error.response.data.detail === 'string') {
+      return error.response.data.detail;
+    }
+    
+    if (Array.isArray(error.response.data.detail)) {
+      return error.response.data.detail
+        .map((err: any) => err.msg || err.message || String(err))
+        .join(', ');
+    }
+  }
+  
+  if (error.response?.data?.message) {
+    return error.response.data.message;
+  }
+  
+  // Handle specific status codes
+  if (error.response?.status === 500) {
+    return 'Server error. Please try again later.';
+  }
+  
+  if (error.response?.status === 404) {
+    return 'The requested resource was not found.';
+  }
+  
+  if (error.response?.status === 403) {
+    return 'You do not have permission to access this resource.';
+  }
+  
+  if (error.response?.status === 401) {
+    return 'Authentication failed. Please check your credentials.';
+  }
+  
+  if (error.message) {
+    return error.message;
+  }
+  
+  return 'An unexpected error occurred. Please try again.';
 };
 
 // Type definitions for TypeScript support
@@ -602,4 +601,5 @@ export interface User {
     is_active: boolean;
   };
 }
+
 export default api;

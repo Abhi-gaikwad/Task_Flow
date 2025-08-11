@@ -43,7 +43,8 @@ def create_static_superadmin_user() -> User:
         company_id=None,  # SuperAdmin doesn't belong to any company
         is_active=True,
         hashed_password="static-superadmin-no-password",
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
+        can_assign_tasks=True # Explicitly set can_assign_tasks for superadmin
     )
     return virtual_superadmin
 
@@ -128,7 +129,8 @@ def authenticate_company(db: Session, company_username: str, company_password: s
         company_id=company.id,
         is_active=True,
         hashed_password="virtual-user-no-password",
-        created_at=company.created_at or datetime.utcnow()
+        created_at=company.created_at or datetime.utcnow(),
+        can_assign_tasks=True # Company users can assign tasks
     )
     
     # Attach company object for frontend use
@@ -183,7 +185,8 @@ def get_current_user(
             company_id=company.id,
             is_active=True,
             hashed_password="virtual-user-no-password",
-            created_at=company.created_at or datetime.utcnow()
+            created_at=company.created_at or datetime.utcnow(),
+            can_assign_tasks=True # Company users can assign tasks
         )
         virtual_company_user.company = company
         
@@ -214,7 +217,8 @@ def get_current_user(
             company_id=company.id,
             is_active=True,
             hashed_password="virtual-user-no-password",
-            created_at=company.created_at or datetime.utcnow()
+            created_at=company.created_at or datetime.utcnow(),
+            can_assign_tasks=True # Admins can assign tasks
         )
         virtual_admin_user.company = company
         

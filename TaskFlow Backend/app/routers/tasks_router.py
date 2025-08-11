@@ -39,29 +39,31 @@ def allocate_task(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.role == UserRole.USER and not getattr(current_user, "can_assign_tasks", False):
+    # Permission check for USER role: must have can_assign_tasks permission
+    if current_user.role == UserRole.USER and not current_user.can_assign_tasks:
         raise HTTPException(status_code=403, detail="You don't have permission to assign tasks")
     
     assignee = db.get(User, task_data.assigned_to_id)
     if not assignee:
         raise HTTPException(status_code=404, detail="Assignee not found")
     
+    # Ensure tasks are assigned within the same company, unless Super Admin
     if current_user.role != UserRole.SUPER_ADMIN:
         if assignee.company_id != current_user.company_id:
             raise HTTPException(status_code=403, detail="Cannot assign tasks to users from other companies")
 
-    # Resolve creator ID for virtual admins
-    if current_user.id < 0:
+    # Resolve creator ID for virtual admins (COMPANY role) and real users
+    if current_user.id < 0: # This handles the virtual COMPANY role
         company_admin = db.query(User).filter(
             User.company_id == current_user.company_id,
-            User.role == UserRole.ADMIN,
+            User.role == UserRole.ADMIN, # Assuming a real admin user exists for the company
             User.is_active == True
         ).first()
         if not company_admin:
-            raise HTTPException(status_code=500, detail="No real admin user found for company")
+            raise HTTPException(status_code=500, detail="No real admin user found for company to attribute task creation.")
         created_by_id = company_admin.id
         creator_name = company_admin.username
-    else:
+    else: # For Super Admin, Admin, and regular Users with permission
         created_by_id = current_user.id
         creator_name = current_user.username
 
@@ -102,21 +104,22 @@ def create_bulk_tasks(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    if current_user.role == UserRole.USER and not getattr(current_user, "can_assign_tasks", False):
+    # Permission check for USER role: must have can_assign_tasks permission
+    if current_user.role == UserRole.USER and not current_user.can_assign_tasks:
         raise HTTPException(status_code=403, detail="You don't have permission to assign tasks")
     
-    # Resolve creator ID for virtual admins
-    if current_user.id < 0:
+    # Resolve creator ID for virtual admins (COMPANY role) and real users
+    if current_user.id < 0: # This handles the virtual COMPANY role
         company_admin = db.query(User).filter(
             User.company_id == current_user.company_id,
-            User.role == UserRole.ADMIN,
+            User.role == UserRole.ADMIN, # Assuming a real admin user exists for the company
             User.is_active == True
         ).first()
         if not company_admin:
-            raise HTTPException(status_code=500, detail="No real admin user found for company")
+            raise HTTPException(status_code=500, detail="No real admin user found for company to attribute task creation.")
         created_by_id = company_admin.id
         creator_name = company_admin.username
-    else:
+    else: # For Super Admin, Admin, and regular Users with permission
         created_by_id = current_user.id
         creator_name = current_user.username
 
@@ -130,6 +133,7 @@ def create_bulk_tasks(
                 failed.append({"user_id": user_id, "error": "User not found"})
                 continue
             
+            # Ensure tasks are assigned within the same company, unless Super Admin
             if current_user.role != UserRole.SUPER_ADMIN:
                 if assignee.company_id != current_user.company_id:
                     failed.append({"user_id": user_id, "error": "Cannot assign tasks to users from other companies"})
@@ -284,6 +288,7 @@ def update_task(
     elif current_user.role == UserRole.ADMIN and task.company_id == current_user.company_id:
         can_update = True
     elif task.created_by == current_user.id:
+        # Allow the original creator to update the task
         can_update = True
     
     if not can_update:
@@ -327,7 +332,7 @@ def list_all_tasks(
     elif current_user.role == UserRole.ADMIN:
         # Admin can see all tasks in their company
         query = query.filter(Task.company_id == current_user.company_id)
-    else:
+    else: # User role
         # Users can see tasks assigned to them OR tasks they created
         query = query.filter(
             (Task.assigned_to_id == current_user.id) |

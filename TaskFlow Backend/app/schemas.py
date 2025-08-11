@@ -38,6 +38,7 @@ class UserCreate(UserBase):
     password: str
     role: UserRole
     company_id: Optional[int] = None
+    can_assign_tasks: Optional[bool] = False # NEW FIELD
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
@@ -46,12 +47,14 @@ class UserUpdate(BaseModel):
     role: Optional[UserRole] = None
     company_id: Optional[int] = None
     is_active: Optional[bool] = None
+    can_assign_tasks: Optional[bool] = None # NEW FIELD
 
 class UserResponse(UserBase):
     id: int
     role: UserRole
     created_at: datetime
     company: Optional[CompanyResponse] = None  # Added company info for hierarchy
+    can_assign_tasks: bool # NEW FIELD
 
     model_config = {"from_attributes": True}
 

@@ -86,15 +86,15 @@ def create_user(
 ):
     """
     Create a new user. Permissions vary by role:
-    - Super Admin: Can create users for any company with any role
-    - Company: Can create users (including admins) only for their company
-    - Admin: Can create users only for their company with USER role
+    - Super Admin: Can create users for any company with any role, and set can_assign_tasks
+    - Company: Can create users (including admins) only for their company, and set can_assign_tasks
+    - Admin: Can create users only for their company with USER role, and set can_assign_tasks for USER role
     """
     print(f"[DEBUG] Creating user by {current_user.id} (role: {current_user.role})")
     
     # Permission checks
     if current_user.role == UserRole.SUPER_ADMIN:
-        # Super admin can create any user
+        # Super admin can create any user and set can_assign_tasks
         pass
     elif current_user.role == UserRole.COMPANY:
         # Company role can create users and admins for their own company
@@ -109,6 +109,10 @@ def create_user(
             raise HTTPException(status_code=403, detail="Can only create users for your company")
         if user_data.role != UserRole.USER:
             raise HTTPException(status_code=403, detail="Admins can only create USER role")
+        # Admins can set can_assign_tasks only for USER role
+        # If user_data.role is not USER and can_assign_tasks is True, raise error
+        if user_data.role != UserRole.USER and user_data.can_assign_tasks:
+            raise HTTPException(status_code=403, detail="Admins can only grant task assignment permission to USER role")
     else:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
@@ -133,7 +137,8 @@ def create_user(
         hashed_password=get_password_hash(user_data.password),
         role=user_data.role,
         company_id=user_data.company_id,
-        is_active=user_data.is_active
+        is_active=user_data.is_active,
+        can_assign_tasks=user_data.can_assign_tasks # Set the new field
     )
     
     db.add(new_user)
@@ -231,9 +236,9 @@ def update_user(
     """
     Update a user's information.
     Permissions:
-    - Super Admin: Can update any user
-    - Company: Can update users in their company (except roles or company_id)
-    - Admin: Can update users in their company (limited fields)
+    - Super Admin: Can update any user, including can_assign_tasks
+    - Company: Can update users in their company (except roles or company_id), including can_assign_tasks
+    - Admin: Can update users in their company (limited fields, can set can_assign_tasks for USER role)
     - User: Can update their own profile (limited fields)
     """
     user_to_update = db.query(User).filter(User.id == user_id).first()
@@ -265,12 +270,19 @@ def update_user(
         # Admins can only update regular users, not other admins or company users
         if user_to_update.role != UserRole.USER:
             raise HTTPException(status_code=403, detail="Admins can only update regular users")
+        # Admins can change can_assign_tasks only for USER role
+        # If user_to_update.role is not USER and user_update.can_assign_tasks is True, raise error
+        if user_to_update.role != UserRole.USER and user_update.can_assign_tasks is not None and user_update.can_assign_tasks:
+            raise HTTPException(status_code=403, detail="Admins can only grant task assignment permission for USER role")
     elif current_user.id == user_id:
         # Regular users can only update specific fields on their own profile
         allowed_fields = ["email", "username", "password"]
         for field in user_update.model_dump(exclude_unset=True):
             if field not in allowed_fields:
                 raise HTTPException(status_code=403, detail=f"User not authorized to update '{field}'")
+        # Regular users cannot change can_assign_tasks on their own profile
+        if user_update.can_assign_tasks is not None:
+            raise HTTPException(status_code=403, detail="You cannot change your own task assignment permission")
     else:
         raise HTTPException(status_code=403, detail="Not authorized to update this user")
 

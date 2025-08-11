@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../common/Button';
 import { Toast } from '../common/Toast';
 import { Task } from '../../types';
+import { usersAPI, tasksAPI } from '../../services/api';
 
 interface TaskFormProps {
   onSubmit: () => void;
@@ -18,6 +19,7 @@ interface UserData {
   role: string;
   full_name?: string;
   is_active: boolean;
+  can_assign_tasks?: boolean;
 }
 
 interface UserGroup {
@@ -28,7 +30,7 @@ interface UserGroup {
 
 export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
   const { addNotification } = useApp();
-  const { user } = useAuth();
+  const { user: currentUser, canAssignTasks, isLoading: authLoading, isAuthenticated } = useAuth();
 
   // User data and loading states
   const [userGroups, setUserGroups] = useState<UserGroup>({
@@ -52,7 +54,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    priority: '' as Task['priority'],
+    priority: 'medium' as Task['priority'],
     dueDate: '',
     reminderSet: '',
     tags: '',
@@ -65,28 +67,71 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showUserList, setShowUserList] = useState(false);
 
-  // Fetch users when component mounts
+  // Fetch users when component mounts and auth is ready
   useEffect(() => {
     async function fetchUsers() {
+      console.log('[TaskForm] fetchUsers called, auth state:', {
+        authLoading,
+        isAuthenticated,
+        currentUser: currentUser?.id,
+        userRole: currentUser?.role,
+        canAssignTasksValue: currentUser?.canAssignTasks,
+        can_assign_tasks: currentUser?.can_assign_tasks
+      });
+
+      // Wait for auth to be fully loaded
+      if (authLoading) {
+        console.log('[TaskForm] Auth is still loading, waiting...');
+        setUsersLoading(true);
+        return;
+      }
+
+      if (!isAuthenticated || !currentUser) {
+        console.log('[TaskForm] User not authenticated');
+        setUsersError("You must be logged in to assign tasks.");
+        setUsersLoading(false);
+        return;
+      }
+
+      // Now check permissions after auth is loaded
+      const hasPermission = canAssignTasks();
+      console.log('[TaskForm] Permission check result:', hasPermission);
+      
+      if (!hasPermission) {
+        console.log('[TaskForm] User cannot assign tasks:', {
+          role: currentUser?.role,
+          canAssignTasks: currentUser?.canAssignTasks,
+          can_assign_tasks: currentUser?.can_assign_tasks,
+          userId: currentUser?.id
+        });
+        setUsersError(
+          currentUser.role === 'user' 
+            ? "You do not have permission to assign tasks. Contact your administrator to grant you task assignment permissions."
+            : "You do not have permission to assign tasks."
+        );
+        setUsersLoading(false);
+        return;
+      }
+
+      // Permission granted, fetch users
       setUsersLoading(true);
       setUsersError(null);
+      
       try {
-        const res = await fetch('http://localhost:8000/api/v1/users', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        if (!res.ok) throw new Error('Failed to load users');
-        
-        const data: UserData[] = await res.json();
+        console.log('[TaskForm] Fetching users for task assignment');
+        const data: UserData[] = await usersAPI.getUsers();
         
         // Filter out current user and group by role
-        const filteredUsers = data.filter((u: UserData) => u.id !== user?.id && u.is_active);
+        const filteredUsers = data.filter((u: UserData) => u.id !== currentUser?.id && u.is_active);
         
         const admins = filteredUsers.filter(u => u.role === 'admin');
         const regularUsers = filteredUsers.filter(u => u.role === 'user');
+        
+        console.log('[TaskForm] Users loaded:', {
+          total: filteredUsers.length,
+          admins: admins.length,
+          users: regularUsers.length
+        });
         
         setUserGroups({
           admins,
@@ -94,14 +139,23 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
           all: filteredUsers
         });
       } catch (err: any) {
-        setUsersError(err.message || 'Error loading users');
+        console.error('[TaskForm] Error loading users:', err);
+        
+        // Handle specific error messages
+        if (err.message && err.message.includes("permission")) {
+          setUsersError("You do not have permission to view other users for assignment. Check your role or task assignment permissions.");
+        } else if (err.message && err.message.includes("Insufficient permissions")) {
+          setUsersError("Insufficient permissions to view users. Contact your administrator.");
+        } else {
+          setUsersError(err.message || 'Error loading users. Please try again.');
+        }
       } finally {
         setUsersLoading(false);
       }
     }
-    
+
     fetchUsers();
-  }, [user?.id]);
+  }, [currentUser, canAssignTasks, authLoading, isAuthenticated]);
 
   // Handle group selection changes
   const handleGroupSelection = (groupType: keyof typeof groupSelections) => {
@@ -176,29 +230,22 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
   // Create multiple tasks for selected users using bulk API
   const createTasksForUsers = async (userIds: number[]) => {
     try {
+      console.log('[TaskForm] Creating bulk tasks for users:', userIds);
+      
       const taskPayload = {
         title: formData.title.trim(),
         description: formData.description.trim() || "",
         assigned_to_ids: userIds,
-        due_date: new Date(formData.dueDate).toISOString(),
+        due_date: formData.dueDate ? new Date(formData.dueDate).toISOString() : undefined,
         priority: formData.priority,
       };
 
-      const response = await fetch('http://localhost:8000/api/v1/tasks/bulk', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        },
-        body: JSON.stringify(taskPayload)
-      });
+      console.log('[TaskForm] Task payload:', taskPayload);
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || `HTTP ${response.status}`);
-      }
-
-      const bulkResult = await response.json();
+      // Use the tasksAPI for bulk creation directly
+      const bulkResult = await tasksAPI.createBulkTasks(taskPayload);
+      
+      console.log('[TaskForm] Bulk task creation result:', bulkResult);
       
       // Add notifications for successful assignments
       bulkResult.successful.forEach((task: any) => {
@@ -222,9 +269,9 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
       };
 
     } catch (error: any) {
-      // If bulk API fails, fall back to individual creation
-      console.warn('Bulk API failed, falling back to individual task creation:', error.message);
+      console.warn('[TaskForm] Bulk API failed, falling back to individual task creation:', error.message);
       
+      // If bulk API fails, fall back to individual creation
       const results = {
         successful: [] as number[],
         failed: [] as { userId: number; error: string }[]
@@ -236,25 +283,15 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
             title: formData.title.trim(),
             description: formData.description.trim() || "",
             assigned_to_id: userId,
-            due_date: new Date(formData.dueDate).toISOString(),
+            due_date: formData.dueDate ? new Date(formData.dueDate).toISOString() : undefined,
             priority: formData.priority,
           };
 
-          const response = await fetch('http://localhost:8000/api/v1/tasks', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-            },
-            body: JSON.stringify(taskPayload)
-          });
+          console.log('[TaskForm] Creating individual task:', taskPayload);
 
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || `HTTP ${response.status}`);
-          }
+          // Use the tasksAPI for single task creation directly
+          const newTask = await tasksAPI.createTask(taskPayload);
 
-          const newTask = await response.json();
           results.successful.push(userId);
 
           // Add notification for the assigned user
@@ -268,6 +305,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
           });
 
         } catch (error: any) {
+          console.error('[TaskForm] Failed to create individual task for user', userId, ':', error.message);
           results.failed.push({
             userId,
             error: error.message || 'Unknown error'
@@ -283,6 +321,8 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+
+    console.log('[TaskForm] Form submission started');
 
     // Validation
     if (!formData.title.trim()) {
@@ -311,13 +351,17 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
 
     try {
       const userIds = Array.from(selectedUsers);
+      console.log('[TaskForm] Creating tasks for users:', userIds);
+      
       const results = await createTasksForUsers(userIds);
+
+      console.log('[TaskForm] Task creation results:', results);
 
       // Reset form after successful creation
       setFormData({
         title: '',
         description: '',
-        priority: '',
+        priority: 'medium' as Task['priority'],
         dueDate: '',
         reminderSet: '',
         tags: '',
@@ -352,6 +396,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
       }
 
     } catch (error: any) {
+      console.error('[TaskForm] Task creation error:', error);
       setToastMessage('Error creating tasks: ' + (error.message || 'Unknown error'));
       setToastType('error');
       setShowToast(true);
@@ -366,13 +411,71 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
 
   const getSelectedCount = () => selectedUsers.size;
 
+  // Show loading state while auth is loading
+  if (authLoading) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="px-4 py-8 text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading permissions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show authentication error
+  if (!isAuthenticated || !currentUser) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="px-4 py-8 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-600 text-center">
+          <AlertCircle className="w-8 h-8 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold mb-2">Authentication Required</h3>
+          <p className="mb-4">Please log in to create tasks.</p>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Show permission denied error
+  if (!canAssignTasks()) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="px-4 py-8 bg-red-50 border border-red-200 rounded-lg text-red-600 text-center">
+          <AlertCircle className="w-8 h-8 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold mb-2">Permission Denied</h3>
+          <p className="mb-4">
+            You do not have permission to assign tasks.
+            {currentUser?.role === 'user' && (
+              <>
+                <br />
+                Contact your administrator to grant you task assignment permissions.
+              </>
+            )}
+          </p>
+          <div className="text-sm text-red-500 mb-4 p-3 bg-red-100 rounded border">
+            <strong>Debug Info:</strong><br />
+            Role: {currentUser?.role}<br />
+            Can Assign Tasks: {currentUser?.canAssignTasks ? 'Yes' : 'No'}<br />
+            User ID: {currentUser?.id}
+          </div>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto">
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Task Title */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Task Title
+            Task Title *
           </label>
           <input
             type="text"
@@ -404,7 +507,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
           />
         </div>
 
-        {/* Priority */}
+        {/* Priority and Due Date */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -427,7 +530,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <Calendar className="w-4 h-4 inline mr-1" />
-              Due Date
+              Due Date *
             </label>
             <input
               type="datetime-local"
@@ -445,14 +548,14 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
           <div className="flex items-center justify-between mb-4">
             <label className="block text-sm font-medium text-gray-700">
               <Users className="w-4 h-4 inline mr-1" />
-              Assign To ({getSelectedCount()} selected)
+              Assign To ({getSelectedCount()} selected) *
             </label>
             <Button
               type="button"
               variant="secondary"
               size="sm"
               onClick={() => setShowUserList(!showUserList)}
-              disabled={isLoading}
+              disabled={isLoading || usersLoading}
             >
               {showUserList ? 'Hide' : 'Show'} User Selection
             </Button>
@@ -460,10 +563,12 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
 
           {usersLoading ? (
             <div className="px-4 py-8 text-center text-gray-500">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mx-auto mb-2"></div>
               Loading users...
             </div>
           ) : usersError ? (
             <div className="px-4 py-4 bg-red-50 border border-red-200 rounded-lg text-red-600">
+              <AlertCircle className="w-4 h-4 inline mr-2" />
               {usersError}
             </div>
           ) : showUserList ? (
@@ -624,7 +729,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
 
                 {userGroups.all.length === 0 && (
                   <div className="text-center py-4 text-gray-500">
-                    No users available for assignment
+                    No users available for assignment in your company
                   </div>
                 )}
               </div>
@@ -660,7 +765,10 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
           <Button variant="secondary" onClick={onClose} disabled={isLoading}>
             Cancel
           </Button>
-          <Button type="submit" disabled={isLoading || selectedUsers.size === 0}>
+          <Button 
+            type="submit" 
+            disabled={isLoading || selectedUsers.size === 0 || !formData.title.trim() || !formData.dueDate}
+          >
             {isLoading ? 'Creating Tasks...' : `Create Task${selectedUsers.size > 1 ? 's' : ''} (${selectedUsers.size})`}
           </Button>
         </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Mail, User as UserIcon, Shield, KeyRound, Building } from "lucide-react";
+import { Mail, User as UserIcon, Shield, KeyRound, Building, ClipboardList } from "lucide-react";
 import { Button } from "../common/Button";
 import { usersAPI, companyAPI } from "../../services/api";
 import { User as UserType, Company } from "../../types";
@@ -13,14 +13,13 @@ interface UserFormProps {
 }
 
 const getRoleOptions = (currentUser: UserType | undefined) =>
-  currentUser?.role === "super_admin"
+  currentUser?.role === "super_admin" || currentUser?.role === "company"
     ? [
         { value: "admin", label: "Admin" },
         { value: "user", label: "User" },
       ]
     : currentUser?.role === "admin"
       ? [
-          { value: "admin", label: "Admin" },
           { value: "user", label: "User" },
         ]
       : [{ value: "user", label: "User" }];
@@ -36,11 +35,11 @@ export const UserForm: React.FC<UserFormProps> = ({
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Default companyId (forced for admins!)
+  // Correctly access company_id from currentUser
   const defaultCompanyId =
-    currentUser?.role === "admin"
-      ? String(currentUser.companyId ?? currentUser.company_id ?? "")
-      : user?.companyId?.toString() || user?.company_id?.toString() || "";
+    currentUser?.role === "admin" || currentUser?.role === "company"
+      ? String(currentUser.company_id ?? "")
+      : user?.company_id?.toString() || "";
 
   const [formData, setFormData] = useState({
     email: user?.email || "",
@@ -52,6 +51,7 @@ export const UserForm: React.FC<UserFormProps> = ({
         : user?.role || "user",
     companyId: defaultCompanyId,
     isActive: (user as any)?.isActive ?? true,
+    canAssignTasks: user?.can_assign_tasks ?? false,
   });
 
   useEffect(() => {
@@ -64,8 +64,16 @@ export const UserForm: React.FC<UserFormProps> = ({
   }, [currentUser]);
 
   const handleChange = (key: keyof typeof formData, value: string | boolean) => {
-    // If admin and key is role, allow selecting "admin" or "user"
-    setFormData((prev) => ({ ...prev, [key]: value }));
+    setFormData((prev) => {
+      const newState = { ...prev, [key]: value };
+
+      if (key === "role" && currentUser?.role === "admin") {
+        if (value !== "user") {
+          newState.canAssignTasks = false;
+        }
+      }
+      return newState;
+    });
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: "" }));
   };
 
@@ -99,17 +107,39 @@ export const UserForm: React.FC<UserFormProps> = ({
         ...(formData.password && { password: formData.password }),
         is_active: formData.isActive,
       };
+
+      const user = JSON.parse(localStorage.getItem('auth'));
+      
+
       if (currentUser?.role === "super_admin") {
         if (!formData.companyId) throw new Error("Company required");
         userData.company_id = Number(formData.companyId);
         userData.role = formData.role;
+        userData.can_assign_tasks = formData.canAssignTasks;
+      } else if (currentUser?.role === "company") {
+        console.log(user);
+        const companyId = user.company.id;
+        if (!companyId)
+          throw new Error("Company user must have a company_id");
+        userData.company_id = Number(companyId);
+        userData.role = formData.role;
+        userData.can_assign_tasks = formData.canAssignTasks;
       } else if (currentUser?.role === "admin") {
-        const companyId = currentUser.companyId ?? currentUser.company_id;
+        const companyId = user.company.id;
         if (!companyId)
           throw new Error("Admin user must have a company_id");
         userData.company_id = Number(companyId);
-        userData.role = formData.role; // allow admin to create admins/users for their company
+        userData.role = formData.role;
+        
+        if (formData.role === "user") {
+          userData.can_assign_tasks = formData.canAssignTasks;
+        } else {
+          userData.can_assign_tasks = false;
+        }
+      } else {
+        delete userData.can_assign_tasks;
       }
+
       if (mode === "create") {
         await usersAPI.createUser(userData);
       } else if (user) {
@@ -129,6 +159,15 @@ export const UserForm: React.FC<UserFormProps> = ({
 
   const roleOptions = getRoleOptions(currentUser);
   const showCompanySelect = currentUser?.role === "super_admin" && companies.length > 0;
+  
+  const showCanAssignTasks = 
+    currentUser?.role === "super_admin" || 
+    currentUser?.role === "company" ||
+    (currentUser?.role === "admin" && formData.role === "user");
+
+  const isCanAssignTasksEditable = 
+    (currentUser?.role === "super_admin" || currentUser?.role === "company") ||
+    (currentUser?.role === "admin" && formData.role === "user");
 
   return (
     <div className="max-w-md mx-auto">
@@ -141,7 +180,7 @@ export const UserForm: React.FC<UserFormProps> = ({
             ? "Add a new user to the system"
             : "Update user information"}
         </p>
-        {currentUser?.role === "admin" && (
+        {(currentUser?.role === "admin" || currentUser?.role === "company") && (
           <p className="text-sm text-blue-600 mt-1">
             User will be added to your company: {currentUser.company?.name}
           </p>
@@ -214,7 +253,7 @@ export const UserForm: React.FC<UserFormProps> = ({
             <p className="text-red-600 text-sm mt-1">{errors.password}</p>
           )}
         </div>
-        {/* Role Select - Admins and Super Admins can pick */}
+        {/* Role Select - Admins, Company and Super Admins can pick */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             <Shield className="w-4 h-4 inline mr-2" />
@@ -274,6 +313,23 @@ export const UserForm: React.FC<UserFormProps> = ({
             User is active
           </label>
         </div>
+        {/* Can Assign Tasks Checkbox - Now visible for Admin and Company when creating/editing USER role */}
+        {showCanAssignTasks && (
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              id="canAssignTasks"
+              checked={formData.canAssignTasks}
+              onChange={(e) => handleChange("canAssignTasks", e.target.checked)}
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+              disabled={loading || !isCanAssignTasksEditable}
+            />
+            <label htmlFor="canAssignTasks" className="ml-2 block text-sm text-gray-700">
+              <ClipboardList className="w-4 h-4 inline mr-2" />
+              Can assign tasks
+            </label>
+          </div>
+        )}
         {/* Submit Buttons */}
         <div className="flex justify-end space-x-3 pt-6">
           <Button

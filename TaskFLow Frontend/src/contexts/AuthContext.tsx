@@ -1,17 +1,20 @@
-// src/contexts/AuthContext.tsx
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User } from '../types';
 import { authAPI } from '../services/api';
 import { transformBackendUser } from '../utils/transform';
 import { handleApiError } from '../services/api';
 
+// This UserResponse interface is taken from the first snippet and is a good representation of what the backend returns.
 interface UserResponse {
   id: number;
   email: string;
   username: string;
   is_active: boolean;
-  role: 'super_admin' | 'admin' | 'user';
+  role: 'super_admin' | 'admin' | 'user' | 'company';
   created_at: string;
+  full_name?: string;
+  phone_number?: string;
+  department?: string;
   company_id?: number;
   company?: {
     id: number;
@@ -21,14 +24,17 @@ interface UserResponse {
     created_at: string;
     company_username?: string;
   };
+  can_assign_tasks?: boolean;
 }
 
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  token: string | null;
 }
 
+// Combining the context types from both snippets
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   companyLogin: (companyUsername: string, companyPassword: string) => Promise<{ success: boolean; error?: string }>;
@@ -37,6 +43,8 @@ interface AuthContextType extends AuthState {
   refreshUser: () => Promise<void>;
   hasPermission: (permission: string) => boolean;
   canAccessRoute: (route: string) => boolean;
+  hasRole: (role: string | string[]) => boolean;
+  canAssignTasks: () => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -53,15 +61,17 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+// Role-based permissions and route access from the first snippet
 const ROLE_PERMISSIONS: Record<string, string[]> = {
-  super_admin: ['manage_companies', 'manage_all_users', 'view_dashboard'],
-  admin: ['manage_company_users', 'manage_company_tasks', 'view_dashboard'],
+  super_admin: ['manage_companies', 'manage_all_users', 'view_dashboard', 'view_assignable_users'],
+  admin: ['manage_company_users', 'manage_company_tasks', 'view_dashboard', 'view_assignable_users'],
+  company: ['manage_company_users', 'manage_company_tasks', 'view_dashboard', 'view_assignable_users'],
   user: ['view_own_tasks', 'update_own_tasks', 'view_dashboard'],
 };
 
 const ROUTE_ACCESS: Record<string, string[]> = {
-  '/dashboard': ['super_admin', 'admin', 'user'],
-  '/users': ['super_admin', 'admin'],
+  '/dashboard': ['super_admin', 'admin', 'user', 'company'],
+  '/users': ['super_admin', 'admin', 'company'],
   '/companies': ['super_admin'],
 };
 
@@ -70,53 +80,80 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     user: null,
     isAuthenticated: false,
     isLoading: true,
+    token: localStorage.getItem('access_token'),
   });
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const currentUserFromAPI: UserResponse = await authAPI.getCurrentUser();
+      const updatedUser = transformBackendUser(currentUserFromAPI);
+      
+      localStorage.setItem('auth', JSON.stringify(updatedUser));
+      setAuthState(prev => ({ 
+        ...prev, 
+        user: updatedUser, 
+        isAuthenticated: true, 
+        isLoading: false, 
+        token: localStorage.getItem('access_token')
+      }));
+    } catch (error) {
+      console.error('Failed to refresh user, logging out.', error);
+      localStorage.removeItem('auth');
+      localStorage.removeItem('access_token');
+      setAuthState({ user: null, isAuthenticated: false, isLoading: false, token: null });
+      window.location.href = '/login';
+    }
+  }, []);
 
   useEffect(() => {
     const initializeAuth = async () => {
       const token = localStorage.getItem('access_token');
+      const savedAuth = localStorage.getItem('auth');
+      
       if (token) {
-        try {
-          const currentUserFromAPI: UserResponse = await authAPI.getCurrentUser();
-          const user = transformBackendUser(currentUserFromAPI);
-          localStorage.setItem('auth', JSON.stringify(user));
-          setAuthState({ user, isAuthenticated: true, isLoading: false });
-        } catch (error) {
-          console.error('Token validation failed, logging out.', error);
-          localStorage.removeItem('auth');
-          localStorage.removeItem('access_token');
-          setAuthState({ user: null, isAuthenticated: false, isLoading: false });
+        if (savedAuth) {
+          try {
+            const authData = JSON.parse(savedAuth);
+            setAuthState(prev => ({ 
+              ...prev, 
+              user: authData.user || null, 
+              isAuthenticated: true, 
+              token 
+            }));
+            // Immediately attempt to refresh the user to validate the token
+            await refreshUser(); 
+          } catch (error) {
+            console.error('[AuthContext] Error parsing saved auth data:', error);
+            localStorage.removeItem('auth');
+            localStorage.removeItem('access_token');
+            setAuthState({ user: null, isAuthenticated: false, isLoading: false, token: null });
+          }
+        } else {
+          // Token exists but no auth data, refresh from backend
+          await refreshUser();
         }
       } else {
-        setAuthState({ user: null, isAuthenticated: false, isLoading: false });
+        setAuthState({ user: null, isAuthenticated: false, isLoading: false, token: null });
       }
     };
     initializeAuth();
-  }, []);
+  }, [refreshUser]);
 
-  const commonLoginLogic = (accessToken: string, userData: UserResponse) => {
-    console.log('[AUTH] Processing login success with user data:', userData);
+  const commonLoginLogic = useCallback((accessToken: string, userData: UserResponse) => {
     const user = transformBackendUser(userData);
-    console.log('[AUTH] Transformed user:', user);
-
     localStorage.setItem('access_token', accessToken);
-    localStorage.setItem('auth', JSON.stringify(user));
-    setAuthState({ user, isAuthenticated: true, isLoading: false });
-
-    console.log('[AUTH] Auth state updated successfully');
-  };
+    localStorage.setItem('auth', JSON.stringify({ ...userData, user })); // Store full user data
+    setAuthState({ user, isAuthenticated: true, isLoading: false, token: accessToken });
+  }, []);
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     setAuthState(prev => ({ ...prev, isLoading: true }));
     try {
-      console.log('[AUTH] Attempting regular login...');
       const response = await authAPI.login(email, password);
-      console.log('[AUTH] Regular login response received:', !!response.access_token, !!response.user);
-
       commonLoginLogic(response.access_token, response.user);
+      await refreshUser(); // Ensure latest user data and permissions
       return { success: true };
     } catch (error: any) {
-      console.error('[AUTH] Regular login failed:', error);
       const errorMessage = handleApiError(error);
       setAuthState(prev => ({ ...prev, isLoading: false }));
       return { success: false, error: errorMessage };
@@ -129,24 +166,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   ): Promise<{ success: boolean; error?: string }> => {
     setAuthState(prev => ({ ...prev, isLoading: true }));
     try {
-      console.log('[AUTH] Attempting company login for:', companyUsername);
       const response = await authAPI.companyLogin(companyUsername, companyPassword);
-      console.log('[AUTH] Company login response received:', !!response.access_token, !!response.user);
-
       if (!response.access_token || !response.user) {
         throw new Error('Invalid response from server - missing token or user data');
       }
-
-      // ✅ Force role to "admin" for company login
-      const forcedUser = {
-        ...response.user,
-        role: 'admin',
-      };
-
-      commonLoginLogic(response.access_token, forcedUser);
+      commonLoginLogic(response.access_token, response.user);
+      await refreshUser(); // Ensure latest user data and permissions
       return { success: true };
     } catch (error: any) {
-      console.error('[AUTH] Company login error:', error);
       const errorMessage = handleApiError(error);
       setAuthState(prev => ({ ...prev, isLoading: false }));
       return { success: false, error: errorMessage };
@@ -156,38 +183,84 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('auth');
     localStorage.removeItem('access_token');
-    setAuthState({ user: null, isAuthenticated: false, isLoading: false });
+    setAuthState({ user: null, isAuthenticated: false, isLoading: false, token: null });
     window.location.href = '/login';
   };
 
-  const updateUser = (user: User) => {
+  const updateUser = useCallback((user: User) => {
     localStorage.setItem('auth', JSON.stringify(user));
     setAuthState(prev => ({ ...prev, user }));
-  };
+  }, []);
 
-  const refreshUser = async () => {
-    try {
-      const currentUserFromAPI: UserResponse = await authAPI.getCurrentUser();
-      const updatedUser = transformBackendUser(currentUserFromAPI);
-      updateUser(updatedUser);
-    } catch (error) {
-      console.error('Failed to refresh user, logging out.', error);
-      logout();
-    }
-  };
-
-  const hasPermission = (permission: string): boolean => {
+  // hasPermission logic is combined from both snippets, prioritizing the more detailed switch-case approach
+  const hasPermission = useCallback((permission: string): boolean => {
     if (!authState.user) return false;
-    const userPermissions = ROLE_PERMISSIONS[authState.user.role] || [];
-    return userPermissions.includes(permission);
-  };
+    
+    const { user } = authState;
 
-  const canAccessRoute = (route: string): boolean => {
+    switch (permission) {
+      case 'view_assignable_users':
+      case 'assign_tasks':
+        // Super Admin, Company, and Admin can assign tasks.
+        // Regular users can if they have the can_assign_tasks flag.
+        if (['super_admin', 'company', 'admin'].includes(user.role)) return true;
+        if (user.role === 'user' && user.can_assign_tasks) return true;
+        return false;
+
+      case 'manage_users':
+        // Super Admin, Company, and Admin can manage users.
+        return ['super_admin', 'company', 'admin'].includes(user.role);
+
+      case 'manage_companies':
+        return user.role === 'super_admin';
+
+      case 'view_all_tasks':
+        // Super Admin, Company, and Admin can view tasks within their scope
+        return ['super_admin', 'company', 'admin'].includes(user.role);
+
+      case 'manage_tasks':
+        // Super Admin, Company, and Admin can manage tasks in their company.
+        // Regular users can manage their own tasks.
+        return ['super_admin', 'company', 'admin', 'user'].includes(user.role);
+
+      case 'update_task_status':
+        // All authenticated users can update the status of their assigned tasks.
+        return true;
+
+      case 'create_admin_users':
+        // Super Admin and Company can create admin users.
+        return ['super_admin', 'company'].includes(user.role);
+
+      case 'view_company_data':
+        // Super Admin, Company, and Admin can view company data.
+        return ['super_admin', 'company', 'admin'].includes(user.role);
+
+      default:
+        // Use the ROLE_PERMISSIONS map as a fallback for other permissions
+        const userPermissions = ROLE_PERMISSIONS[user.role] || [];
+        return userPermissions.includes(permission);
+    }
+  }, [authState.user]);
+
+  const canAccessRoute = useCallback((route: string): boolean => {
     if (!authState.user) return false;
     const allowedRoles = ROUTE_ACCESS[route];
     if (!allowedRoles) return true;
     return allowedRoles.includes(authState.user.role);
-  };
+  }, [authState.user]);
+
+  const hasRole = useCallback((role: string | string[]): boolean => {
+    if (!authState.user) return false;
+    const userRole = authState.user.role;
+    if (Array.isArray(role)) {
+      return role.includes(userRole);
+    }
+    return userRole === role;
+  }, [authState.user]);
+
+  const canAssignTasks = useCallback((): boolean => {
+    return hasPermission('assign_tasks');
+  }, [hasPermission]);
 
   const contextValue: AuthContextType = {
     ...authState,
@@ -198,6 +271,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     refreshUser,
     hasPermission,
     canAccessRoute,
+    hasRole,
+    canAssignTasks,
   };
 
   return (
@@ -210,8 +285,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 export const usePermissions = () => {
   const { user, hasPermission } = useAuth();
   return {
-    canManageUsers: hasPermission('manage_all_users') || hasPermission('manage_company_users'),
+    canManageUsers: hasPermission('manage_users'),
     canManageCompanies: hasPermission('manage_companies'),
+    canViewAssignableUsers: hasPermission('view_assignable_users'),
     isAdmin: user?.role === 'admin' || user?.role === 'super_admin',
     isSuperAdmin: user?.role === 'super_admin',
   };

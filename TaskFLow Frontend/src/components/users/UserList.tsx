@@ -22,20 +22,20 @@ export const UserList: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   const isSuperAdmin = loggedInUser?.role === 'super_admin';
+  const isCompany = loggedInUser?.role === 'company';
   const isAdmin = loggedInUser?.role === 'admin';
-  const isAdminOrSuperAdmin = isAdmin || isSuperAdmin;
+  
+  // Revised check to include COMPANY role
+  const isCompanyOrAdminOrSuperAdmin = isCompany || isAdmin || isSuperAdmin;
 
   const fetchAndSetUsers = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // For super admin, we want to get company admins
-      // For regular admin, we want to get users in their company
       const usersData = await usersAPI.getUsers({
         limit: 100,
         is_active: undefined,
-        // The backend will filter appropriately based on the logged-in user's role
       });
       
       setAllUsers(usersData.map(transformBackendUser));
@@ -47,7 +47,8 @@ export const UserList: React.FC = () => {
   };
 
   useEffect(() => {
-    if (isAdminOrSuperAdmin) {
+    // Revised check to include COMPANY role
+    if (isCompanyOrAdminOrSuperAdmin) {
       fetchAndSetUsers();
     } else {
       setLoading(false);
@@ -107,7 +108,8 @@ export const UserList: React.FC = () => {
     setIsEditModalOpen(true);
   };
 
-  if (!isAdminOrSuperAdmin) {
+  // Revised check to include COMPANY role
+  if (!isCompanyOrAdminOrSuperAdmin) {
     return (
       <div className="text-center py-12">
         <Shield className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -284,10 +286,12 @@ export const UserList: React.FC = () => {
                     <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                       u.role === 'admin' ? 'bg-purple-100 text-purple-800' :
                       u.role === 'super_admin' ? 'bg-red-100 text-red-800' :
+                      u.role === 'company' ? 'bg-indigo-100 text-indigo-800' :
                       'bg-blue-100 text-blue-800'
                     }`}>
                       <Shield className="w-3 h-3 mr-1" />
                       {u.role === 'super_admin' ? 'Super Admin' : 
+                       u.role === 'company' ? 'Company' :
                        u.role === 'admin' ? 'Admin' : 'User'}
                     </span>
                   </td>

@@ -75,7 +75,7 @@ class User(Base):
     department          = Column(String)
     about_me            = Column(Text)
     preferred_language  = Column(String, default="en")
-    can_assign_tasks    = Column(Boolean, default=False, nullable=False)
+    can_assign_tasks    = Column(Boolean, default=False, nullable=False) # NEW FIELD
 
     # relationships
     company = relationship("Company", back_populates="users")
