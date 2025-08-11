@@ -157,22 +157,15 @@ def list_users(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    List users based on current user's permissions:
-    - Super Admin: Can see all users
-    - Company: Can see users in their company
-    - Admin: Can see users in their company
-    - User: Cannot access this endpoint
-    """
     print(f"[DEBUG] Listing users for {current_user.id} (role: {current_user.role})")
     
-    if current_user.role == UserRole.USER and (current_user.can_assign_tasks == False ):
+    if current_user.role == UserRole.USER and not current_user.can_assign_tasks:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     query = db.query(User)
     
-    # Filter by company for company and admin roles
-    if current_user.role in [UserRole.COMPANY, UserRole.ADMIN]:
+    # Restrict by company for everyone except Super Admin
+    if current_user.role != UserRole.SUPER_ADMIN:
         query = query.filter(User.company_id == current_user.company_id)
     
     # Apply filters
@@ -189,6 +182,7 @@ def list_users(
     users = query.offset(skip).limit(limit).all()
     print(f"[DEBUG] Found {len(users)} users")
     return [UserResponse.model_validate(user) for user in users]
+
 
 @router.get("/users/me", response_model=UserResponse)
 def get_current_user_profile(current_user: User = Depends(get_current_user)):
