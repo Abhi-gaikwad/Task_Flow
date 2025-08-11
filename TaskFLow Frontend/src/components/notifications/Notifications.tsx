@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 export const Notifications: React.FC = () => {
   const { user } = useAuth();
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const { notifications, setNotifications, markNotificationAsRead } = useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +27,21 @@ export const Notifications: React.FC = () => {
       }
 
       const data = await response.json();
-      setNotifications(data);
+      
+      const formattedNotifications = data.map((notif: any) => ({
+        id: notif.id,
+        message: notif.message,
+        title: notif.title,
+        type: notif.type,
+        isRead: notif.is_read,
+        createdAt: notif.created_at,
+        is_read: notif.is_read,
+        created_at: notif.created_at
+      }));
+      
+      if (setNotifications) {
+        setNotifications(formattedNotifications);
+      }
     } catch (error) {
       console.error('Error fetching notifications:', error);
       setError('Failed to load notifications');
@@ -46,10 +60,9 @@ export const Notifications: React.FC = () => {
       });
 
       if (response.ok) {
-        // Update local state
-        setNotifications(prev => 
-          prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
-        );
+        if (markNotificationAsRead) {
+          markNotificationAsRead(notificationId);
+        }
       }
     } catch (error) {
       console.error('Error marking notification as read:', error);
@@ -66,8 +79,9 @@ export const Notifications: React.FC = () => {
       });
 
       if (response.ok) {
-        // Remove from local state
-        setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        if (setNotifications) {
+          setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        }
       }
     } catch (error) {
       console.error('Error deleting notification:', error);
@@ -104,6 +118,11 @@ export const Notifications: React.FC = () => {
     }
   };
 
+  // Filter out any error-related notifications before rendering
+  const filteredNotifications = notifications.filter(
+    (notification) => notification.type !== 'error'
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -114,7 +133,7 @@ export const Notifications: React.FC = () => {
         <div className="flex items-center space-x-2">
           <Bell className="w-5 h-5 text-gray-400" />
           <span className="text-sm text-gray-600">
-            {notifications.filter(n => !n.is_read).length} unread
+            {filteredNotifications.filter(n => !n.isRead).length} unread
           </span>
         </div>
       </div>
@@ -139,19 +158,19 @@ export const Notifications: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {notifications.length === 0 ? (
+              {filteredNotifications.length === 0 ? (
               <div className="text-center py-12">
                 <Bell className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                 <p className="text-gray-500">No notifications yet</p>
               </div>
               ) : (
-                notifications.map((notification) => (
+                filteredNotifications.map((notification) => (
                 <div
                   key={notification.id}
                   className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
-                    notification.is_read ? 'bg-gray-50 border-gray-200' : getNotificationBg(notification.type)
-                  } ${!notification.is_read ? 'hover:shadow-md' : ''}`}
-                  onClick={() => !notification.is_read && markAsRead(notification.id)}
+                    notification.isRead ? 'bg-gray-50 border-gray-200' : getNotificationBg(notification.type)
+                  } ${!notification.isRead ? 'hover:shadow-md' : ''}`}
+                  onClick={() => !notification.isRead && markAsRead(notification.id)}
                 >
                   <div className="flex items-start space-x-3">
                     <div className="flex-shrink-0">
@@ -160,13 +179,13 @@ export const Notifications: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <p className={`text-sm font-medium ${
-                          notification.is_read ? 'text-gray-600' : 'text-gray-900'
+                          notification.isRead ? 'text-gray-600' : 'text-gray-900'
                         }`}>
-                          {notification.title}
+                          {notification.title || notification.message}
                         </p>
                         <div className="flex items-center space-x-2">
                           <p className="text-xs text-gray-500">
-                            {new Date(notification.created_at).toLocaleDateString()}
+                            {new Date(notification.createdAt).toLocaleDateString()}
                           </p>
                           <button
                             onClick={(e) => {
@@ -179,12 +198,14 @@ export const Notifications: React.FC = () => {
                           </button>
                         </div>
                       </div>
-                      <p className={`text-sm mt-1 ${
-                        notification.is_read ? 'text-gray-500' : 'text-gray-700'
-                      }`}>
-                        {notification.message}
-                      </p>
-                      {!notification.is_read && (
+                      {notification.title && (
+                        <p className={`text-sm mt-1 ${
+                          notification.isRead ? 'text-gray-500' : 'text-gray-700'
+                        }`}>
+                          {notification.message}
+                        </p>
+                      )}
+                      {!notification.isRead && (
                         <div className="flex items-center mt-2">
                           <div className="w-2 h-2 bg-blue-600 rounded-full mr-2"></div>
                           <span className="text-xs text-blue-600 font-medium">New</span>
