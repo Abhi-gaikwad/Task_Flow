@@ -1,7 +1,7 @@
 // src/components/tasks/TaskList.tsx
 
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, Plus, ChevronDown, CheckCircle, Clock, User, UserCheck } from 'lucide-react';
+import { Search, Filter, Plus, ChevronDown, User, UserCheck } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { TaskCard } from './TaskCard';
@@ -12,7 +12,7 @@ import { Task } from '../../types';
 
 export const TaskList: React.FC = () => {
   const { tasks, addNotification, updateTasks } = useApp();
-  const { user } = useAuth();
+  const { user, canAssignTasks } = useAuth();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -24,13 +24,14 @@ export const TaskList: React.FC = () => {
 
   useEffect(() => {
     fetchTasks();
-  }, []);
+  }, [user]);
 
   const fetchTasks = async () => {
     try {
       setLoading(true);
       setError(null);
 
+      // Fetch all tasks for an admin, and only my tasks for a regular user
       const endpoint = user?.role === 'admin' ? '/api/v1/tasks' : '/api/v1/my-tasks';
       const response = await fetch(`http://localhost:8000${endpoint}`, {
         headers: {
@@ -73,43 +74,50 @@ export const TaskList: React.FC = () => {
     }
   };
 
-  const filteredTasks = (tasks || []).filter(task => {
+  const allFilteredTasks = (tasks || []).filter(task => {
     const title = (task.title ?? '').toLowerCase();
     const description = (task.description ?? '').toLowerCase();
     const term = searchTerm.toLowerCase();
+    const isCurrentUserAdmin = user?.role === 'admin';
+    const currentUserId = user?.id?.toString();
 
     const matchesSearch = title.includes(term) || description.includes(term);
     const matchesStatus = statusFilter === 'all' || task.status === statusFilter;
     const matchesPriority = priorityFilter === 'all' || task.priority === priorityFilter;
 
-    // Assignment filter logic
-    let matchesAssignment = true;
-    if (assignmentFilter === 'assigned_to_me') {
-      matchesAssignment = task.assignedTo === user?.id?.toString();
-    } else if (assignmentFilter === 'assigned_by_me') {
-      matchesAssignment = task.assignedBy === user?.id?.toString();
+    // Filter logic for non-admin users: only show tasks assigned to them
+    if (!isCurrentUserAdmin) {
+      return matchesSearch && matchesStatus && matchesPriority && task.assignedTo === currentUserId;
     }
-
-    // Role-based visibility
-    let matchesUser = true;
-    if (user?.role !== 'admin') {
-      matchesUser = task.assignedTo === user?.id?.toString() || task.assignedBy === user?.id?.toString();
-    }
-
-    return matchesSearch && matchesStatus && matchesPriority && matchesAssignment && matchesUser;
+    
+    // Admin users see all tasks, with no additional filtering here
+    return matchesSearch && matchesStatus && matchesPriority;
   });
 
-  // Separate tasks based on assignment
-  const assignedToMeTasks = filteredTasks.filter(task => task.assignedTo === user?.id?.toString());
-  const assignedByMeTasks = filteredTasks.filter(task => task.assignedBy === user?.id?.toString());
-
-  const handleCreateTask = async () => {
-    try {
-      await fetchTasks();
-      setIsCreateModalOpen(false);
-    } catch (error) {
-      console.error('Error after creating task:', error);
+  const assignedToMeTasks = allFilteredTasks.filter(task => task.assignedTo === user?.id?.toString());
+  const assignedByMeTasks = allFilteredTasks.filter(task => task.assignedBy === user?.id?.toString());
+  
+  const tasksToDisplay = (() => {
+    switch(assignmentFilter) {
+      case 'assigned_to_me':
+        return assignedToMeTasks;
+      case 'assigned_by_me':
+        return assignedByMeTasks;
+      case 'all':
+      default:
+        // Combine tasks from both categories, ensuring no duplicates
+        const combinedTasks = [...assignedToMeTasks, ...assignedByMeTasks];
+        const uniqueTaskIds = new Set(combinedTasks.map(task => task.id));
+        return Array.from(uniqueTaskIds).map(id => combinedTasks.find(task => task.id === id)!);
     }
+  })();
+  
+  const handleCreateTask = async () => {
+    // Re-fetch tasks after creating to ensure the list is up-to-date
+    await fetchTasks(); 
+    setIsCreateModalOpen(false);
+    // After creating a task, automatically switch to the 'Assigned by Me' filter
+    setAssignmentFilter('assigned_by_me');
   };
 
   const handleEditTask = (task: Task) => {
@@ -144,37 +152,14 @@ export const TaskList: React.FC = () => {
   };
 
   const getTaskCountsByFilter = () => {
-    const all = filteredTasks.length;
-    const assignedToMe = assignedToMeTasks.length;
-    const assignedByMe = assignedByMeTasks.length;
-    
-    return { all, assignedToMe, assignedByMe };
-  };
+    const isCurrentUserAdmin = user?.role === 'admin';
+    const myTasks = isCurrentUserAdmin ? allFilteredTasks : allFilteredTasks.filter(t => t.assignedTo === user?.id?.toString());
 
-  const renderTaskSection = (sectionTasks: Task[], title: string, icon: React.ReactNode) => {
-    if (sectionTasks.length === 0) return null;
-
-    return (
-      <div className="mb-8">
-        <div className="flex items-center mb-4">
-          {icon}
-          <h2 className="text-lg font-semibold text-gray-800 ml-2">{title}</h2>
-          <span className="ml-2 bg-blue-100 text-blue-800 text-sm font-medium px-2.5 py-0.5 rounded-full">
-            {sectionTasks.length}
-          </span>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {sectionTasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              onEdit={handleEditTask}
-              onDelete={handleDeleteTask}
-            />
-          ))}
-        </div>
-      </div>
-    );
+    return {
+      all: myTasks.length,
+      assignedToMe: assignedToMeTasks.length,
+      assignedByMe: assignedByMeTasks.length,
+    };
   };
 
   if (loading) {
@@ -195,6 +180,7 @@ export const TaskList: React.FC = () => {
   }
 
   const taskCounts = getTaskCountsByFilter();
+  const isCurrentUserAdmin = user?.role === 'admin';
 
   return (
     <div className="space-y-6">
@@ -202,10 +188,10 @@ export const TaskList: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tasks</h1>
           <p className="text-gray-600">
-            {user?.role === 'admin' ? 'Manage all tasks' : 'Your assigned tasks'}
+            {isCurrentUserAdmin ? 'Manage all tasks' : 'Your assigned tasks'}
           </p>
         </div>
-        {(user?.role === 'admin' || user?.canAssignTasks) && (
+        {(isCurrentUserAdmin || canAssignTasks()) && (
           <Button icon={Plus} onClick={() => setIsCreateModalOpen(true)}>
             New Task
           </Button>
@@ -213,7 +199,6 @@ export const TaskList: React.FC = () => {
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-        {/* Search and Filter Toggle */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -236,11 +221,9 @@ export const TaskList: React.FC = () => {
           </Button>
         </div>
 
-        {/* Filter Panel */}
         {showFilters && (
           <div className="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Assignment Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Assignment</label>
                 <select
@@ -249,12 +232,13 @@ export const TaskList: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="all">All Tasks ({taskCounts.all})</option>
-                  <option value="assigned_to_me">Assigned to Me ({taskCounts.assignedToMe})</option>
-                  <option value="assigned_by_me">Assigned by Me ({taskCounts.assignedByMe})</option>
+                  <option value="assigned_to_me">Assigned to Me ({assignedToMeTasks.length})</option>
+                  {(isCurrentUserAdmin || canAssignTasks()) && (
+                    <option value="assigned_by_me">Assigned by Me ({assignedByMeTasks.length})</option>
+                  )}
                 </select>
               </div>
 
-              {/* Status Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
                 <select
@@ -269,7 +253,6 @@ export const TaskList: React.FC = () => {
                 </select>
               </div>
 
-              {/* Priority Filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
                 <select
@@ -288,69 +271,35 @@ export const TaskList: React.FC = () => {
           </div>
         )}
 
-        {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-blue-50 p-4 rounded-lg">
             <p className="text-sm text-blue-600">Total Tasks</p>
-            <p className="text-2xl font-bold text-blue-700">{filteredTasks.length}</p>
+            <p className="text-2xl font-bold text-blue-700">{tasksToDisplay.length}</p>
           </div>
           <div className="bg-yellow-50 p-4 rounded-lg">
             <p className="text-sm text-yellow-600">Pending</p>
             <p className="text-2xl font-bold text-yellow-700">
-              {filteredTasks.filter(t => t.status === 'pending').length}
+              {tasksToDisplay.filter(t => t.status === 'pending').length}
             </p>
           </div>
           <div className="bg-purple-50 p-4 rounded-lg">
             <p className="text-sm text-purple-600">In Progress</p>
             <p className="text-2xl font-bold text-purple-700">
-              {filteredTasks.filter(t => t.status === 'in-progress').length}
+              {tasksToDisplay.filter(t => t.status === 'in-progress').length}
             </p>
           </div>
           <div className="bg-green-50 p-4 rounded-lg">
             <p className="text-sm text-green-600">Completed</p>
             <p className="text-2xl font-bold text-green-700">
-              {filteredTasks.filter(t => t.status === 'completed').length}
+              {tasksToDisplay.filter(t => t.status === 'completed').length}
             </p>
           </div>
         </div>
 
-        {/* Task Sections */}
         <div>
-          {assignmentFilter === 'all' && (
-            <>
-              {renderTaskSection(
-                assignedToMeTasks,
-                "Tasks Assigned to Me",
-                <User className="w-5 h-5 text-blue-600" />
-              )}
-              {renderTaskSection(
-                assignedByMeTasks,
-                "Tasks Assigned by Me",
-                <UserCheck className="w-5 h-5 text-green-600" />
-              )}
-            </>
-          )}
-
-          {assignmentFilter === 'assigned_to_me' && (
-            renderTaskSection(
-              assignedToMeTasks,
-              "Tasks Assigned to Me",
-              <User className="w-5 h-5 text-blue-600" />
-            )
-          )}
-
-          {assignmentFilter === 'assigned_by_me' && (
-            renderTaskSection(
-              assignedByMeTasks,
-              "Tasks Assigned by Me",
-              <UserCheck className="w-5 h-5 text-green-600" />
-            )
-          )}
-
-          {/* Show single grid when no specific filter */}
-          {assignmentFilter === 'all' && assignedToMeTasks.length === 0 && assignedByMeTasks.length === 0 && (
+          {tasksToDisplay.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredTasks.map((task) => (
+              {tasksToDisplay.map((task) => (
                 <TaskCard
                   key={task.id}
                   task={task}
@@ -359,26 +308,21 @@ export const TaskList: React.FC = () => {
                 />
               ))}
             </div>
+          ) : (
+            <div className="text-center py-12">
+              <div className="text-gray-400 mb-4">
+                <Filter className="w-16 h-16 mx-auto" />
+              </div>
+              <p className="text-gray-500 text-lg mb-2">No tasks found</p>
+              <p className="text-gray-400">
+                {statusFilter !== 'all' || priorityFilter !== 'all' || searchTerm
+                  ? 'Try adjusting your filters or search terms'
+                  : 'No tasks have been assigned to you yet'
+                }
+              </p>
+            </div>
           )}
         </div>
-
-        {/* Empty State */}
-        {filteredTasks.length === 0 && !loading && (
-          <div className="text-center py-12">
-            <div className="text-gray-400 mb-4">
-              <Filter className="w-16 h-16 mx-auto" />
-            </div>
-            <p className="text-gray-500 text-lg mb-2">No tasks found</p>
-            <p className="text-gray-400">
-              {statusFilter !== 'all' || priorityFilter !== 'all' || searchTerm || assignmentFilter !== 'all'
-                ? 'Try adjusting your filters or search terms'
-                : user?.role === 'admin'
-                  ? 'Create your first task to get started'
-                  : 'No tasks have been assigned to you yet'
-              }
-            </p>
-          </div>
-        )}
       </div>
 
       <Modal
