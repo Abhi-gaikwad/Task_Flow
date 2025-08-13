@@ -8,13 +8,23 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User, UserRole, Company
 from app.config import settings
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/login")
 
 # Static SuperAdmin credentials
-STATIC_SUPERADMIN_EMAIL = "superadmin@test.com"
-STATIC_SUPERADMIN_PASSWORD = "123"
+# STATIC_SUPERADMIN_EMAIL = "superadmin@test.com"
+# STATIC_SUPERADMIN_PASSWORD = "123"
+
+
+
+STATIC_SUPERADMIN_EMAIL = settings.static_superadmin_email
+STATIC_SUPERADMIN_PASSWORD = settings.static_superadmin_password
+
+
 
 def get_password_hash(pw: str) -> str:
     return pwd_ctx.hash(pw)
