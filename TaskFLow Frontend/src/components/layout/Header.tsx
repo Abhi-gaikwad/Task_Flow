@@ -308,9 +308,8 @@
 //     </header>
 //   );
 // };
-
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, Search, Plus, CheckCircle, Trash, User, Settings, LogOut, ChevronDown } from 'lucide-react';
+import { Bell, Search, Plus, CheckCircle, User, LogOut, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApp } from '../../contexts/AppContext';
 
@@ -323,9 +322,10 @@ const NOTIF_SOUND_URL = "/sounds/notify.mp3";
 
 export const Header: React.FC<HeaderProps> = ({ onNewTask }) => {
   const { user, logout } = useAuth();
-  const { notifications, markNotificationAsRead } = useApp();
+  const { notifications, setNotifications, markNotificationAsRead } = useApp();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [notificationsLoaded, setNotificationsLoaded] = useState(false);
   const bellRef = useRef<HTMLButtonElement | null>(null);
   const profileRef = useRef<HTMLButtonElement | null>(null);
   const notificationDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -335,17 +335,58 @@ export const Header: React.FC<HeaderProps> = ({ onNewTask }) => {
   const unreadCount = notifications.filter(n => !n.isRead && n.type !== 'error').length;
   const [lastUnread, setLastUnread] = useState(unreadCount);
 
+  // Auto-load notifications when component mounts (dashboard loads)
+  useEffect(() => {
+    if (!notificationsLoaded) {
+      fetchNotifications();
+    }
+  }, [notificationsLoaded]);
+
+  // Fetch notifications function
+  const fetchNotifications = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/api/v1/notifications', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch notifications');
+      }
+
+      const data = await response.json();
+
+      // Normalize backend → frontend keys
+      const formattedNotifications = data.map((notif: any) => ({
+        id: notif.id,
+        message: notif.message,
+        title: notif.title,
+        type: (notif.type || notif.notification_type || '').toLowerCase(),
+        isRead: notif.is_read ?? false,
+        createdAt: notif.created_at || notif.createdAt
+      }));
+
+      if (setNotifications) {
+        setNotifications(formattedNotifications);
+      }
+      setNotificationsLoaded(true);
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+      setNotificationsLoaded(true); // Still mark as loaded to avoid infinite retries
+    }
+  };
+
   // Play notification sound when new unread notifications arrive
   useEffect(() => {
-    if (unreadCount > lastUnread) {
+    if (unreadCount > lastUnread && notificationsLoaded) {
       const audio = new Audio(NOTIF_SOUND_URL);
       audio.play().catch(() => {
         // Silently handle audio play errors
       });
     }
     setLastUnread(unreadCount);
-    // eslint-disable-next-line
-  }, [unreadCount]);
+  }, [unreadCount, notificationsLoaded]);
 
   // Outside click closes dropdowns
   useEffect(() => {
@@ -377,10 +418,28 @@ export const Header: React.FC<HeaderProps> = ({ onNewTask }) => {
   }, [showNotifications, showProfile]);
 
   // Mark all as read handler
-  const markAllAsRead = () => {
-    notifications
-      .filter(n => !n.isRead)
-      .forEach(n => markNotificationAsRead && markNotificationAsRead(n.id));
+  const markAllAsRead = async () => {
+    const unreadNotifications = notifications.filter(n => !n.isRead);
+    
+    // Mark all unread notifications as read on the backend
+    const promises = unreadNotifications.map(async (n) => {
+      try {
+        const response = await fetch(`http://localhost:8000/api/v1/notifications/${n.id}/read`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          }
+        });
+        
+        if (response.ok && markNotificationAsRead) {
+          markNotificationAsRead(n.id);
+        }
+      } catch (error) {
+        console.error(`Error marking notification ${n.id} as read:`, error);
+      }
+    });
+
+    await Promise.all(promises);
   };
 
   // Get display name for different user roles
@@ -472,19 +531,20 @@ export const Header: React.FC<HeaderProps> = ({ onNewTask }) => {
               >
                 <div className="flex justify-between items-center border-b border-gray-100 px-5 py-3 bg-white/90 sticky top-0 z-10">
                   <span className="font-semibold text-gray-800">Notifications</span>
-                  <button
-                    onClick={markAllAsRead}
-                    className="flex items-center text-xs text-blue-600 hover:underline font-medium"
-                    disabled={notifications.length === 0 || unreadCount === 0}
-                  >
-                    <CheckCircle className="w-4 h-4 mr-1" /> Mark all as read
-                  </button>
+                  {unreadCount > 0 && (
+                    <button
+                      onClick={markAllAsRead}
+                      className="flex items-center text-xs text-blue-600 hover:underline font-medium"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-1" /> Mark all as read
+                    </button>
+                  )}
                 </div>
                 <ul className="divide-y divide-gray-100 max-h-80 overflow-y-auto">
                   {notifications.length === 0 ? (
                     <li className="py-8 px-6 text-center text-gray-400">No notifications</li>
                   ) : (
-                    notifications.map((n, idx) => (
+                    notifications.filter(n => n.type !== 'error').map((n, idx) => (
                       <li
                         key={n.id || idx}
                         className={`px-6 py-3 cursor-pointer transition group ${
@@ -520,15 +580,6 @@ export const Header: React.FC<HeaderProps> = ({ onNewTask }) => {
                     ))
                   )}
                 </ul>
-                <div className="border-t border-gray-100 px-4 py-3 bg-white/80 text-center">
-                  <button
-                    className="flex items-center justify-center text-xs text-red-500 hover:text-red-700 transition mx-auto"
-                    disabled
-                  >
-                    <Trash className="w-4 h-4 mr-1" />
-                    Clear all (coming soon)
-                  </button>
-                </div>
               </div>
             )}
           </div>

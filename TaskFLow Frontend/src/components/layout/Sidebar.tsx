@@ -193,7 +193,12 @@ export const Sidebar: React.FC = () => {
       show: (user?.role === 'admin' || user?.role === 'company') && canManageUsers,
     },
     { label: 'Reports', href: '/reports', icon: BarChart3, show: user?.role !== 'super_admin' },
-    { label: 'Notifications', href: '/notifications', icon: Bell, show: true },
+    { 
+      label: 'Notifications', 
+      href: '/notifications', 
+      icon: Bell, 
+      show: user?.role !== 'company' // 🔹 Hide notifications for company role
+    },
     { label: 'Settings', href: '/settings', icon: Settings, show: true },
   ];
 
