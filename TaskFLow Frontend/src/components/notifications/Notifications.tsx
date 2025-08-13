@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, CheckCircle, Clock, AlertTriangle, Info, Trash2 } from 'lucide-react';
+import { Bell, CheckCircle, Clock, AlertTriangle, Info, Trash2, Plus } from 'lucide-react';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -27,18 +27,18 @@ export const Notifications: React.FC = () => {
       }
 
       const data = await response.json();
-      
+
+      // ✅ Normalize backend → frontend keys
       const formattedNotifications = data.map((notif: any) => ({
         id: notif.id,
         message: notif.message,
         title: notif.title,
-        type: notif.type,
-        isRead: notif.is_read,
-        createdAt: notif.created_at,
-        is_read: notif.is_read,
-        created_at: notif.created_at
+        type: (notif.type || notif.notification_type || '').toLowerCase(),
+        isRead: notif.is_read ?? false,
+        createdAt: notif.created_at || notif.createdAt
       }));
-      
+
+
       if (setNotifications) {
         setNotifications(formattedNotifications);
       }
@@ -98,6 +98,8 @@ export const Notifications: React.FC = () => {
         return <CheckCircle className="w-5 h-5 text-green-600" />;
       case 'task_due_soon':
         return <AlertTriangle className="w-5 h-5 text-red-600" />;
+      case 'task_created': // 🆕 New notification type for task creators
+        return <Plus className="w-5 h-5 text-green-600" />;
       default:
         return <Info className="w-5 h-5 text-gray-600" />;
     }
@@ -113,6 +115,8 @@ export const Notifications: React.FC = () => {
         return 'bg-green-50 border-green-200';
       case 'task_due_soon':
         return 'bg-red-50 border-red-200';
+      case 'task_created': // 🆕 New notification type styling
+        return 'bg-green-50 border-green-200';
       default:
         return 'bg-gray-50 border-gray-200';
     }
@@ -185,7 +189,9 @@ export const Notifications: React.FC = () => {
                         </p>
                         <div className="flex items-center space-x-2">
                           <p className="text-xs text-gray-500">
-                            {new Date(notification.createdAt).toLocaleDateString()}
+                            {notification.createdAt
+                              ? new Date(notification.createdAt).toLocaleDateString()
+                              : ''}
                           </p>
                           <button
                             onClick={(e) => {
