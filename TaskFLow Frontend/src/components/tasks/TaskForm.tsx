@@ -228,17 +228,17 @@ export const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onClose }) => {
       });
 
       // Notification for the creator (current user) - confirmation of successful assignment
-      if (currentUser?.id && currentUser.id !== assignedUserId) {
-        const assignedUserName = getUserNameById(assignedUserId);
-        addNotification({
-          type: 'task_created', // Different type for creator notifications
-          title: 'Task Created Successfully',
-          message: `Task "${formData.title}" has been successfully assigned to ${assignedUserName}`,
-          userId: currentUser.id.toString(),
-          taskId: task.id?.toString() || '',
-          isRead: false,
-        });
-      }
+      // if (currentUser?.id && currentUser.id !== assignedUserId) {
+      //   const assignedUserName = getUserNameById(assignedUserId);
+      //   addNotification({
+      //     type: 'task_created', // Different type for creator notifications
+      //     title: 'Task Created Successfully',
+      //     message: `Task "${formData.title}" has been successfully assigned to ${assignedUserName}`,
+      //     userId: currentUser.id.toString(),
+      //     taskId: task.id?.toString() || '',
+      //     isRead: false,
+      //   });
+      // }
 
       console.log(`✅ Notifications created for task ${task.id}: assigned user ${assignedUserId} and creator ${currentUser?.id}`);
     } catch (error) {

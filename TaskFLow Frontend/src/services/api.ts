@@ -11,9 +11,10 @@ const api = axios.create({
 
 // Static SuperAdmin credentials matching backend
 export const STATIC_SUPERADMIN_CREDENTIALS = {
-  email: 'superadmin@test.com', // This matches your backend STATIC_SUPERADMIN_EMAIL
-  password: '123' // This matches your backend STATIC_SUPERADMIN_PASSWORD
+  email: import.meta.env.VITE_SUPERADMIN_EMAIL || '',
+  password: import.meta.env.VITE_SUPERADMIN_PASSWORD || ''
 };
+
 
 // Add request interceptor to include auth token
 api.interceptors.request.use(
