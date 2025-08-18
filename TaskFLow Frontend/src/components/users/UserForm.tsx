@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Mail, User as UserIcon, Shield, KeyRound, Building, ClipboardList } from "lucide-react";
+import { Mail, User as UserIcon, Shield, KeyRound, Building, ClipboardList, Eye, EyeOff } from "lucide-react";
 import { Button } from "../common/Button";
 import { usersAPI, companyAPI } from "../../services/api";
 import { User as UserType, Company } from "../../types";
@@ -34,6 +34,8 @@ export const UserForm: React.FC<UserFormProps> = ({
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Correctly access company_id from currentUser
   const defaultCompanyId =
@@ -45,6 +47,7 @@ export const UserForm: React.FC<UserFormProps> = ({
     email: user?.email || "",
     username: user?.username || "",
     password: "",
+    confirmPassword: "",
     role:
       currentUser?.role === "admin" && mode === "create"
         ? "user"
@@ -79,19 +82,34 @@ export const UserForm: React.FC<UserFormProps> = ({
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
+    
     if (!formData.email.trim()) newErrors.email = "Email is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))
       newErrors.email = "Please enter a valid email address";
+      
     if (!formData.username.trim())
       newErrors.username = "Username is required";
     else if (formData.username.length < 3)
       newErrors.username = "Username must be at least 3 characters";
+      
     if (mode === "create" && !formData.password)
       newErrors.password = "Password is required";
     else if (formData.password && formData.password.length < 6)
       newErrors.password = "Password must be at least 6 characters";
+      
+    // Password confirmation validation
+    if (formData.password || formData.confirmPassword) {
+      if (formData.password !== formData.confirmPassword) {
+        newErrors.confirmPassword = "Passwords do not match";
+      }
+      if (mode === "create" && !formData.confirmPassword) {
+        newErrors.confirmPassword = "Please confirm your password";
+      }
+    }
+      
     if (currentUser?.role === "super_admin" && !formData.companyId)
       newErrors.companyId = "Company is required";
+      
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -212,6 +230,7 @@ export const UserForm: React.FC<UserFormProps> = ({
             <p className="text-red-600 text-sm mt-1">{errors.email}</p>
           )}
         </div>
+        
         {/* Username */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -232,27 +251,79 @@ export const UserForm: React.FC<UserFormProps> = ({
             <p className="text-red-600 text-sm mt-1">{errors.username}</p>
           )}
         </div>
+        
         {/* Password */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             <KeyRound className="w-4 h-4 inline mr-2" />
             Password {mode === "create" ? "*" : "(leave blank to keep current)"}
           </label>
-          <input
-            type="password"
-            value={formData.password}
-            onChange={(e) => handleChange("password", e.target.value)}
-            className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              errors.password ? "border-red-300 bg-red-50" : "border-gray-300"
-            }`}
-            placeholder={mode === "create" ? "Enter password" : "Enter new password"}
-            disabled={loading}
-            autoComplete="new-password"
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              value={formData.password}
+              onChange={(e) => handleChange("password", e.target.value)}
+              className={`w-full px-4 py-2 pr-12 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.password ? "border-red-300 bg-red-50" : "border-gray-300"
+              }`}
+              placeholder={mode === "create" ? "Enter password" : "Enter new password"}
+              disabled={loading}
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+              tabIndex={-1}
+            >
+              {showPassword ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
+            </button>
+          </div>
           {errors.password && (
             <p className="text-red-600 text-sm mt-1">{errors.password}</p>
           )}
         </div>
+
+        {/* Confirm Password */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            <KeyRound className="w-4 h-4 inline mr-2" />
+            Confirm Password {mode === "create" ? "*" : "(required if changing password)"}
+          </label>
+          <div className="relative">
+            <input
+              type={showConfirmPassword ? "text" : "password"}
+              value={formData.confirmPassword}
+              onChange={(e) => handleChange("confirmPassword", e.target.value)}
+              className={`w-full px-4 py-2 pr-12 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.confirmPassword ? "border-red-300 bg-red-50" : "border-gray-300"
+              }`}
+              placeholder="Confirm password"
+              disabled={loading}
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+              tabIndex={-1}
+            >
+              {showConfirmPassword ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+          {errors.confirmPassword && (
+            <p className="text-red-600 text-sm mt-1">{errors.confirmPassword}</p>
+          )}
+        </div>
+        
         {/* Role Select - Admins, Company and Super Admins can pick */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -272,6 +343,7 @@ export const UserForm: React.FC<UserFormProps> = ({
             ))}
           </select>
         </div>
+        
         {/* Company - Only show for super admins */}
         {showCompanySelect && (
           <div>
@@ -299,6 +371,7 @@ export const UserForm: React.FC<UserFormProps> = ({
             )}
           </div>
         )}
+        
         {/* Active Status */}
         <div className="flex items-center">
           <input
@@ -313,6 +386,7 @@ export const UserForm: React.FC<UserFormProps> = ({
             User is active
           </label>
         </div>
+        
         {/* Can Assign Tasks Checkbox - Now visible for Admin and Company when creating/editing USER role */}
         {showCanAssignTasks && (
           <div className="flex items-center">
@@ -330,6 +404,7 @@ export const UserForm: React.FC<UserFormProps> = ({
             </label>
           </div>
         )}
+        
         {/* Submit Buttons */}
         <div className="flex justify-end space-x-3 pt-6">
           <Button
