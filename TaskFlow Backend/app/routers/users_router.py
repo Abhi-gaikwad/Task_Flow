@@ -53,8 +53,8 @@ def create_company_admin(
         )
     
     # Check for existing email
-    if db.query(User).filter(User.email == admin_data.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
+    # if db.query(User).filter(User.email == admin_data.email).first():
+    #     raise HTTPException(status_code=400, detail="Email already registered")
     
     # Check for existing username
     if db.query(User).filter(User.username == admin_data.username).first():
@@ -123,8 +123,8 @@ def create_user(
             raise HTTPException(status_code=400, detail="Company not found")
     
     # Check for existing email
-    if db.query(User).filter(User.email == user_data.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
+    # if db.query(User).filter(User.email == user_data.email).first():
+    #     raise HTTPException(status_code=400, detail="Email already registered")
     
     # Check for existing username
     if db.query(User).filter(User.username == user_data.username).first():
