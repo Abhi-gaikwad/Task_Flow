@@ -70,11 +70,17 @@ export const UserForm: React.FC<UserFormProps> = ({
     setFormData((prev) => {
       const newState = { ...prev, [key]: value };
 
-      if (key === "role" && currentUser?.role === "admin") {
-        if (value !== "user") {
-          newState.canAssignTasks = false;
+      // Auto-manage can_assign_tasks based on role
+      if (key === "role") {
+        if (value === "admin") {
+          // Admins inherently have task assignment permissions
+          newState.canAssignTasks = false; // Hide the field by setting to false
+        } else if (value === "user" && currentUser?.role === "admin") {
+          // When admin creates a user, keep current canAssignTasks value
+          // (this allows admin to choose)
         }
       }
+      
       return newState;
     });
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: "" }));
@@ -179,13 +185,15 @@ export const UserForm: React.FC<UserFormProps> = ({
   const showCompanySelect = currentUser?.role === "super_admin" && companies.length > 0;
   
   const showCanAssignTasks = 
-    currentUser?.role === "super_admin" || 
+    (currentUser?.role === "super_admin" || 
     currentUser?.role === "company" ||
-    (currentUser?.role === "admin" && formData.role === "user");
+    (currentUser?.role === "admin" && formData.role === "user")) &&
+    formData.role === "user"; // Only show for USER role
 
   const isCanAssignTasksEditable = 
-    (currentUser?.role === "super_admin" || currentUser?.role === "company") ||
-    (currentUser?.role === "admin" && formData.role === "user");
+    ((currentUser?.role === "super_admin" || currentUser?.role === "company") ||
+    (currentUser?.role === "admin" && formData.role === "user")) &&
+    formData.role === "user"; // Only editable for USER role
 
   return (
     <div className="max-w-md mx-auto">
