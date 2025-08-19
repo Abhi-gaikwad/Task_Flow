@@ -337,10 +337,10 @@ export const Header: React.FC<HeaderProps> = ({ onNewTask }) => {
 
   // Auto-load notifications when component mounts (dashboard loads)
   useEffect(() => {
-    if (!notificationsLoaded) {
-      fetchNotifications();
-    }
-  }, [notificationsLoaded]);
+  if (!notificationsLoaded && user?.role !== "company") {
+    fetchNotifications();
+  }
+}, [notificationsLoaded, user?.role]);
 
   // Fetch notifications function
   const fetchNotifications = async () => {

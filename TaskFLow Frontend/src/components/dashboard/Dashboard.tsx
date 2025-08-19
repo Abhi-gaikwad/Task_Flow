@@ -2,9 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApp } from '../../contexts/AppContext';
-import { usersAPI, companyAPI } from '../../services/api';
-import CompanyCreationForm  from '../admin/CompanyCreationForm';
-import { Modal } from '../common/Modal'; 
+// import { usersAPI, companyAPI } from '../../services/api';
+import CompanyCreationForm from '../admin/CompanyCreationForm';
+import { Modal } from '../common/Modal';
+import { useLocation } from "react-router-dom";
+import { usersAPI, companyAPI, tasksAPI, notificationsAPI } from '../../services/api';
+
+
 
 import {
   Users,
@@ -69,7 +73,7 @@ interface Company {
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth(); // Removed companyLogin from here
-  const { tasks = [], notifications = [] } = useApp();
+  const { tasks = [], notifications = [], setTasks } = useApp();
 
   const [stats, setStats] = useState<DashboardStats>({
     totalUsers: 0,
@@ -99,32 +103,32 @@ export const Dashboard: React.FC = () => {
 
 
   const loadUsers = async () => {
-    if (user?.role === 'admin' && user.company_id) {
-      try {
-        setUsersLoading(true);
-        const usersData = await usersAPI.listUsers({
-          limit: 100,
-          is_active: undefined,
-        });
-        setUsers(usersData || []);
-        const activeUsers = usersData?.filter(u => u.is_active).length || 0;
-        const inactiveUsers = usersData?.filter(u => !u.is_active).length || 0;
-        setStats(prevStats => ({
-          ...prevStats,
-          totalUsers: usersData?.length || 0,
-          activeUsers,
-          inactiveUsers,
-        }));
-      } catch (err: any) {
-        console.error('Failed to load users:', err);
-        setError('Failed to load users data');
-      } finally {
-        setUsersLoading(false);
-      }
-    } else {
-      setUsers([]);
+  if (user?.role === 'admin' && user.company_id) {
+    try {
+      setUsersLoading(true);
+      const usersData = await usersAPI.getUsers({   // ✅ FIXED
+        limit: 100,
+        is_active: undefined,
+      });
+      setUsers(usersData || []);
+      const activeUsers = usersData?.filter(u => u.is_active).length || 0;
+      const inactiveUsers = usersData?.filter(u => !u.is_active).length || 0;
+      setStats(prevStats => ({
+        ...prevStats,
+        totalUsers: usersData?.length || 0,
+        activeUsers,
+        inactiveUsers,
+      }));
+    } catch (err: any) {
+      console.error('Failed to load users:', err);
+      setError('Failed to load users data');
+    } finally {
+      setUsersLoading(false);
     }
-  };
+  } else {
+    setUsers([]);
+  }
+};
 
   const loadCompanies = async () => {
     if (!user || user.role !== 'super_admin') {
@@ -149,91 +153,125 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    const loadDashboardData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const location = useLocation();
 
-        const newStats: DashboardStats = {
-          totalUsers: 0,
-          totalCompanies: 0,
-          totalTasks: Array.isArray(tasks) ? tasks.length : 0,
-          pendingTasks: 0,
-          completedTasks: 0,
-          overdueTasks: 0,
-          activeUsers: 0,
-          inactiveUsers: 0,
-        };
+useEffect(() => {
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        if (Array.isArray(tasks) && tasks.length > 0) {
-          newStats.pendingTasks = tasks.filter(task => task.status === 'pending' || task.status === 'in_progress').length;
-          newStats.completedTasks = tasks.filter(task => task.status === 'completed').length;
-          newStats.overdueTasks = tasks.filter(task => {
-            if (!task.dueDate) return false;
-            const dueDate = new Date(task.dueDate);
-            const now = new Date();
-            return dueDate < now && task.status !== 'completed';
-          }).length;
+      let freshTasks: any[] = [];
+      let companyUsers: any[] = [];
+      let companyList: any[] = [];
+
+      // 🔹 Super Admin: can see everything
+      if (user?.role === "super_admin") {
+        companyList = await companyAPI.listCompanies();
+        freshTasks = await tasksAPI.getAllTasks();   // all tasks
+        companyUsers = await usersAPI.getUsers();    // all users
+      } 
+      // 🔹 Company role: see everything in their company
+      else if (user?.role === "company") {
+        const [companyUsersRes, companyTasksRes] = await Promise.all([
+          usersAPI.getUsers({ company_id: user.company_id }),
+          tasksAPI.getAllTasks({ company_id: user.company_id }),
+        ]);
+        companyUsers = companyUsersRes || [];
+        freshTasks = companyTasksRes || [];
+      } 
+      // 🔹 Admin: only company scope
+      else if (user?.role === "admin" && user.company_id) {
+        freshTasks = await tasksAPI.getAllTasks({ company_id: user.company_id });
+        companyUsers = await usersAPI.getUsers({ company_id: user.company_id });
+      } 
+      // 🔹 Normal User: 
+      else if (user?.role === "user") {
+        // Check if user can create tasks (depends on backend permissions flag)
+        if (user?.permissions?.includes("create_task")) {
+          // ✅ User can create tasks → show all tasks they created
+          freshTasks = await tasksAPI.getAllTasks({ created_by: user.id });
+        } else {
+          // ✅ User cannot create tasks → only their assigned tasks
+          freshTasks = await tasksAPI.getMyTasks();
         }
-
-        if (user?.role === 'admin') {
-          newStats.totalCompanies = 1; 
-        }
-
-        setStats(newStats);
-
-        const activities: RecentActivity[] = [];
-        if (Array.isArray(tasks)) {
-          const recentTasks = tasks
-            .filter(task => task.createdAt)
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-            .slice(0, 3);
-
-          recentTasks.forEach(task => {
-            activities.push({
-              id: `task-${task.id}`,
-              type: 'task_created',
-              message: `New task "${task.title}" was created`,
-              timestamp: new Date(task.createdAt),
-              user: task.assignedTo
-            });
-          });
-        }
-        if (Array.isArray(notifications)) {
-          const recentNotifications = notifications
-            .filter(notif => notif.createdAt)
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-            .slice(0, 2);
-
-          recentNotifications.forEach(notif => {
-            activities.push({
-              id: `notif-${notif.id}`,
-              type: 'task_completed',
-              message: notif.message,
-              timestamp: new Date(notif.createdAt)
-            });
-          });
-        }
-        activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-        setRecentActivities(activities.slice(0, 5));
-
-        if (user?.role === 'admin' && user.company_id) {
-          await loadUsers();
-        }
-        if (user?.role === 'super_admin') {
-          await loadCompanies();
-        }
-      } catch (err: any) {
-        console.error('Dashboard loading error:', err);
-        setError('Failed to load dashboard data. Please try refreshing the page.');
-      } finally {
-        setLoading(false);
       }
-    };
 
+      // 🛎 Notifications (everyone sees their own)
+      const freshNotifications = await notificationsAPI.getNotifications();
+
+      // 📊 Stats Calculation
+      const newStats: DashboardStats = {
+        totalCompanies: user?.role === "super_admin" ? companyList.length : 0,
+        totalUsers:
+          user?.role === "super_admin" || user?.role === "admin" || user?.role === "company"
+            ? companyUsers.length
+            : 0,
+        totalTasks: freshTasks.length,
+        pendingTasks: freshTasks.filter(
+          t => t.status === "pending" || t.status === "in_progress"
+        ).length,
+        completedTasks: freshTasks.filter(t => t.status === "completed").length,
+        overdueTasks: freshTasks.filter(t => {
+          if (!t.due_date) return false;
+          const dueDate = new Date(t.due_date);
+          return dueDate < new Date() && t.status !== "completed";
+        }).length,
+        activeUsers:
+          (user?.role === "super_admin" || user?.role === "admin" || user?.role === "company")
+            ? companyUsers.filter(u => u.is_active).length
+            : 0,
+        inactiveUsers:
+          (user?.role === "super_admin" || user?.role === "admin" || user?.role === "company")
+            ? companyUsers.filter(u => !u.is_active).length
+            : 0,
+      };
+      setStats(newStats);
+
+      // 📌 Recent Activities (show only their related activities if user)
+      const activities: RecentActivity[] = [];
+
+      freshTasks.slice(0, 3).forEach(task => {
+        activities.push({
+          id: `task-${task.id}`,
+          type: "task_created",
+          message: `Task "${task.title}" created`,
+          timestamp: new Date(task.created_at),
+          user: task.assignee_name,
+        });
+      });
+
+      freshNotifications.slice(0, 3).forEach(notif => {
+        activities.push({
+          id: `notif-${notif.id}`,
+          type: "task_completed",
+          message: notif.message,
+          timestamp: new Date(notif.created_at),
+        });
+      });
+
+      setRecentActivities(
+        activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      );
+
+    } catch (err: any) {
+      console.error("Dashboard loading error:", err);
+      setError("Failed to load dashboard data. Please try refreshing.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (location.pathname.includes("/dashboard")) {
     loadDashboardData();
-  }, [user, tasks, notifications]);
+    if (user?.role === "super_admin") {
+      loadCompanies();
+    }
+  }
+}, [user, location.pathname]);
+
+   // <-- correct dependency array
+
 
 
   const handleUserAction = async (action: string, userId: number) => {
@@ -325,42 +363,49 @@ export const Dashboard: React.FC = () => {
       value: stats.totalTasks,
       icon: CheckSquare,
       color: 'bg-blue-500',
-      show: true,
+      show: user?.role === 'admin'|| user?.role === 'user',
     },
     {
       title: 'Pending Tasks',
       value: stats.pendingTasks,
       icon: Clock,
       color: 'bg-yellow-500',
-      show: true,
+      show: user?.role === 'admin'|| user?.role === 'user',
     },
     {
       title: 'Completed Tasks',
       value: stats.completedTasks,
       icon: CheckSquare,
       color: 'bg-green-500',
-      show: true,
+      show: user?.role === 'admin'|| user?.role === 'user',
     },
     {
       title: 'Overdue Tasks',
       value: stats.overdueTasks,
       icon: AlertTriangle,
       color: 'bg-red-500',
-      show: true,
+      show: user?.role === 'admin'|| user?.role === 'user',
     },
     {
       title: 'Total Users',
       value: stats.totalUsers,
       icon: Users,
       color: 'bg-purple-500',
-      show: user?.role === 'admin',
+      show: user?.role === 'admin' || user?.role === 'company', // ✅ FIXED: Added 'company' role
     },
     {
       title: 'Active Users',
       value: stats.activeUsers,
       icon: UserCheck,
       color: 'bg-green-600',
-      show: user?.role === 'admin',
+      show: user?.role === 'admin' || user?.role === 'company', // ✅ FIXED: Added 'company' role
+    },
+    {
+      title: 'Inactive Users',
+      value: stats.inactiveUsers,
+      icon: UserX,
+      color: 'bg-red-600',
+      show: user?.role === 'admin' || user?.role === 'company', // ✅ FIXED: Added 'inactive users' for admin/company roles
     },
     {
       title: 'Total Companies',
@@ -371,7 +416,7 @@ export const Dashboard: React.FC = () => {
     },
   ].filter(card => card.show);
 
-  const shouldShowUserSection = user?.role === 'admin'; 
+  const shouldShowUserSection = false; // ✅ FIXED: Removed the team member section
 
   return (
     <div className="space-y-6">
@@ -550,7 +595,7 @@ export const Dashboard: React.FC = () => {
                     key={company.id}
                     className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
                     // Removed onClick handler from company cards
-                    // onClick={() => handleCompanyClick(company)} 
+                    // onClick={() => handleCompanyClick(company)}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-3">
@@ -565,7 +610,7 @@ export const Dashboard: React.FC = () => {
                           {company.company_username && (
                             <p className="text-xs text-gray-500 flex items-center mt-1">
                               {/* Changed to just display username, not suggest login interaction from here */}
-                              Login Username: {company.company_username} 
+                              Login Username: {company.company_username}
                             </p>
                           )}
                           <p className="text-xs text-gray-500 mt-2">
@@ -640,7 +685,7 @@ export const Dashboard: React.FC = () => {
                   </thead>
                   <tbody>
                     {users
-                      .slice(0, 10) 
+                      .slice(0, 10)
                       .map((dashboardUser) => (
                         <tr key={dashboardUser.id} className="border-b border-gray-100 hover:bg-gray-50">
                           <td className="py-3">

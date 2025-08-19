@@ -432,6 +432,7 @@ export const tasksAPI = {
     status?: string;
     assigned_to_id?: number;
     created_by?: number;
+    company_id?: number;
     skip?: number;
     limit?: number;
   }) => {
@@ -602,5 +603,33 @@ export interface User {
     is_active: boolean;
   };
 }
+// Notifications API
+export const notificationsAPI = {
+  getNotifications: async (params?: { skip?: number; limit?: number }) => {
+    console.log('[API] Getting notifications with params:', params);
+
+    try {
+      const response = await api.get('/notifications', { params });
+      console.log('[API] Retrieved notifications:', response.data.length);
+      return response.data;
+    } catch (error: any) {
+      console.error('[API] Failed to get notifications:', error.response?.data || error.message);
+      throw new Error(handleApiError(error));
+    }
+  },
+
+  markAsRead: async (notificationId: number) => {
+    console.log('[API] Marking notification as read:', notificationId);
+
+    try {
+      const response = await api.put(`/notifications/${notificationId}/read`);
+      console.log('[API] Notification marked as read successfully');
+      return response.data;
+    } catch (error: any) {
+      console.error('[API] Failed to mark notification as read:', error.response?.data || error.message);
+      throw new Error(handleApiError(error));
+    }
+  },
+};
 
 export default api;
