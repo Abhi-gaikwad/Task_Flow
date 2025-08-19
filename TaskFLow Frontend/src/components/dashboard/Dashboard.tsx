@@ -164,95 +164,159 @@ useEffect(() => {
       let freshTasks: any[] = [];
       let companyUsers: any[] = [];
       let companyList: any[] = [];
+      companyList = await companyAPI.listCompanies();
 
-      // 🔹 Super Admin: can see everything
-      if (user?.role === "super_admin") {
+      if (user?.role ===  "admin") {
+        // 🟢 Super Admin: get everything
         companyList = await companyAPI.listCompanies();
-        freshTasks = await tasksAPI.getAllTasks();   // all tasks
+        freshTasks = await tasksAPI.getAllTasks();   // all tasks (no filter)
         companyUsers = await usersAPI.getUsers();    // all users
-      } 
-      // 🔹 Company role: see everything in their company
-      else if (user?.role === "company") {
-        const [companyUsersRes, companyTasksRes] = await Promise.all([
-          usersAPI.getUsers({ company_id: user.company_id }),
-          tasksAPI.getAllTasks({ company_id: user.company_id }),
-        ]);
-        companyUsers = companyUsersRes || [];
-        freshTasks = companyTasksRes || [];
-      } 
-      // 🔹 Admin: only company scope
+      }
+      // 🔹 Company: see everything inside their company (all users + all tasks)
+        else if (user?.role === "company") {
+  try {
+    const [companyUsers, companyTasks] = await Promise.all([
+      usersAPI.getUsers({ company_id: user.company_id }),
+      tasksAPI.getAllTasks({ company_id: user.company_id })
+    ]);
+
+    setUsers(companyUsers || []);
+    if (setTasks) setTasks(companyTasks || []);
+
+    setStats({
+      totalCompanies: 1,
+      totalUsers: companyUsers?.length || 0,
+      totalTasks: companyTasks?.length || 0,
+      pendingTasks: companyTasks?.filter(
+        t => t.status === "pending" || t.status === "in_progress"
+      ).length || 0,
+      completedTasks: companyTasks?.filter(
+        t => t.status === "completed"
+      ).length || 0,
+      overdueTasks: companyTasks?.filter(t => {
+        if (!t.due_date) return false;
+        return new Date(t.due_date) < new Date() && t.status !== "completed";
+      }).length || 0,
+      activeUsers: companyUsers?.filter(u => u.is_active).length || 0,
+      inactiveUsers: companyUsers?.filter(u => !u.is_active).length || 0,
+    });
+
+    // Load recent activities for company
+    const activities: RecentActivity[] = [];
+    companyTasks?.slice(0, 3).forEach(task => {
+      activities.push({
+        id: `task-${task.id}`,
+        type: "task_created",
+        message: `Task "${task.title}" created`,
+        timestamp: new Date(task.created_at),
+        user: task.assignee_name,
+      });
+    });
+
+    setRecentActivities(
+      activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+    );
+
+    setLoading(false);
+    return;
+  } catch (err) {
+    console.error("Company dashboard error:", err);
+    setError("Failed to load company data");
+    setLoading(false);
+    return;
+  }
+}
+
       else if (user?.role === "admin" && user.company_id) {
+        // 🟠 Admin: only company scope
         freshTasks = await tasksAPI.getAllTasks({ company_id: user.company_id });
         companyUsers = await usersAPI.getUsers({ company_id: user.company_id });
-      } 
-      // 🔹 Normal User: 
-      else if (user?.role === "user") {
-        // Check if user can create tasks (depends on backend permissions flag)
-        if (user?.permissions?.includes("create_task")) {
-          // ✅ User can create tasks → show all tasks they created
-          freshTasks = await tasksAPI.getAllTasks({ created_by: user.id });
-        } else {
-          // ✅ User cannot create tasks → only their assigned tasks
-          freshTasks = await tasksAPI.getMyTasks();
-        }
+      }
+      else {
+        // 🔵 Normal User: only their own tasks
+        freshTasks = await tasksAPI.getMyTasks();
       }
 
-      // 🛎 Notifications (everyone sees their own)
+      // 🛎 Notifications: everyone sees their own
       const freshNotifications = await notificationsAPI.getNotifications();
 
-      // 📊 Stats Calculation
+      // 📊 Stats based on role
       const newStats: DashboardStats = {
         totalCompanies: user?.role === "super_admin" ? companyList.length : 0,
         totalUsers:
-          user?.role === "super_admin" || user?.role === "admin" || user?.role === "company"
-            ? companyUsers.length
-            : 0,
+          user?.role === "super_admin" ? companyUsers.length :
+          user?.role === "admin" ? companyUsers.length : 0,
         totalTasks: freshTasks.length,
-        pendingTasks: freshTasks.filter(
-          t => t.status === "pending" || t.status === "in_progress"
-        ).length,
+        pendingTasks: freshTasks.filter(t => t.status === "pending" || t.status === "in_progress").length,
         completedTasks: freshTasks.filter(t => t.status === "completed").length,
         overdueTasks: freshTasks.filter(t => {
           if (!t.due_date) return false;
           const dueDate = new Date(t.due_date);
           return dueDate < new Date() && t.status !== "completed";
         }).length,
-        activeUsers:
-          (user?.role === "super_admin" || user?.role === "admin" || user?.role === "company")
-            ? companyUsers.filter(u => u.is_active).length
-            : 0,
-        inactiveUsers:
-          (user?.role === "super_admin" || user?.role === "admin" || user?.role === "company")
-            ? companyUsers.filter(u => !u.is_active).length
-            : 0,
+        activeUsers: (user?.role === "super_admin" || user?.role === "admin")
+          ? companyUsers.filter(u => u.is_active).length
+          : 0,
+        inactiveUsers: (user?.role === "super_admin" || user?.role === "admin")
+          ? companyUsers.filter(u => !u.is_active).length
+          : 0
       };
       setStats(newStats);
 
-      // 📌 Recent Activities (show only their related activities if user)
-      const activities: RecentActivity[] = [];
+      // 📌 Recent Activities
+      if (user?.role === "super_admin") {
+        // Super admin sees everything’s activity
+        const activities: RecentActivity[] = [];
 
-      freshTasks.slice(0, 3).forEach(task => {
-        activities.push({
-          id: `task-${task.id}`,
-          type: "task_created",
-          message: `Task "${task.title}" created`,
-          timestamp: new Date(task.created_at),
-          user: task.assignee_name,
+        freshTasks.slice(0, 3).forEach(task => {
+          activities.push({
+            id: `task-${task.id}`,
+            type: "task_created",
+            message: `Task "${task.title}" created`,
+            timestamp: new Date(task.created_at),
+            user: task.assignee_name,
+          });
         });
-      });
 
-      freshNotifications.slice(0, 3).forEach(notif => {
-        activities.push({
-          id: `notif-${notif.id}`,
-          type: "task_completed",
-          message: notif.message,
-          timestamp: new Date(notif.created_at),
+        freshNotifications.slice(0, 3).forEach(notif => {
+          activities.push({
+            id: `notif-${notif.id}`,
+            type: "task_completed",
+            message: notif.message,
+            timestamp: new Date(notif.created_at),
+          });
         });
-      });
 
-      setRecentActivities(
-        activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-      );
+        setRecentActivities(
+          activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+        );
+      } else if (user?.role === "admin" || user?.role === "user") {
+        // Admin/User only see company-related or personal activities
+        const activities: RecentActivity[] = [];
+
+        freshTasks.slice(0, 3).forEach(task => {
+          activities.push({
+            id: `task-${task.id}`,
+            type: "task_created",
+            message: `Task "${task.title}" created`,
+            timestamp: new Date(task.created_at),
+            user: task.assignee_name,
+          });
+        });
+
+        freshNotifications.slice(0, 3).forEach(notif => {
+          activities.push({
+            id: `notif-${notif.id}`,
+            type: "task_completed",
+            message: notif.message,
+            timestamp: new Date(notif.created_at),
+          });
+        });
+
+        setRecentActivities(
+          activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+        );
+      }
 
     } catch (err: any) {
       console.error("Dashboard loading error:", err);
@@ -264,12 +328,12 @@ useEffect(() => {
 
   if (location.pathname.includes("/dashboard")) {
     loadDashboardData();
+
     if (user?.role === "super_admin") {
       loadCompanies();
     }
   }
 }, [user, location.pathname]);
-
    // <-- correct dependency array
 
 
