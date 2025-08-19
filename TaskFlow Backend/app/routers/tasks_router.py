@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 from app.auth import get_current_user
 from app.models import User, Task, UserRole, TaskStatus, NotificationType
-from app.schemas import TaskCreate, TaskUpdate, TaskResponse, BulkTaskCreate, BulkTaskResponse
+from app.schemas import TaskCreate, TaskUpdate, TaskResponse, BulkTaskCreate, BulkTaskResponse, BulkTaskFailure
 from app.database import get_db
 from .notifications_router import create_notification
 from datetime import date, timedelta, datetime
@@ -207,7 +207,8 @@ def allocate_task(
 
     # ✅ Notify the assignee
     if assignee and assignee.id:
-        print(f"📢 Sending notification to assignee: {assignee.id} ({assignee.username})")
+        print(
+            f"📢 Sending notification to assignee: {assignee.id} ({assignee.username})")
         create_notification(
             db=db,
             user_id=assignee.id,
@@ -219,7 +220,8 @@ def allocate_task(
 
     # ✅ Notify the creator (if different from assignee)
     if created_by_id and created_by_id != assignee.id:
-        print(f"📢 Sending notification to creator: {created_by_id} ({creator_name})")
+        print(
+            f"📢 Sending notification to creator: {created_by_id} ({creator_name})")
         create_notification(
             db=db,
             user_id=created_by_id,
@@ -259,23 +261,23 @@ def create_bulk_tasks(
 
     # Resolve creator ID
     created_by_id, creator_name = resolve_creator_id(current_user, db)
-    successful = []
-    failed = []
-    assigned_usernames = []
+    successful: List[TaskResponse] = []
+    failed: List[BulkTaskFailure] = []
+    assigned_usernames: List[str] = []
 
     # Create tasks
     for user_id in task_data.assigned_to_ids:
         try:
             assignee = db.get(User, user_id)
             if not assignee:
-                failed.append({"user_id": user_id, "error": "User not found"})
+                failed.append(BulkTaskFailure(
+                    user_id=user_id, error="User not found"))
                 continue
 
-            if current_user.role != UserRole.SUPER_ADMIN:
-                if assignee.company_id != current_user.company_id:
-                    failed.append(
-                        {"user_id": user_id, "error": "Cannot assign tasks to users from other companies"})
-                    continue
+            if current_user.role != UserRole.SUPER_ADMIN and assignee.company_id != current_user.company_id:
+                failed.append(BulkTaskFailure(
+                    user_id=user_id, error="Cannot assign tasks to users from other companies"))
+                continue
 
             # Create task
             task = Task(
@@ -305,7 +307,7 @@ def create_bulk_tasks(
 
         except Exception as e:
             db.rollback()
-            failed.append({"user_id": user_id, "error": str(e)})
+            failed.append(BulkTaskFailure(user_id=user_id, error=str(e)))
 
     # ✅ Only send one combined notification to the creator
     try:
@@ -323,23 +325,24 @@ def create_bulk_tasks(
             create_notification(
                 db=db,
                 user_id=created_by_id,
-                notification_type=NotificationType.TASK_CREATOR_ASSIGNED,  # keep consistent
+                notification_type=NotificationType.TASK_CREATOR_ASSIGNED,
                 title=title,
                 message=f'You assigned the task "{task_data.title}" to {usernames_str}',
                 task_id=successful[0].id if successful else None
             )
-
-        db.commit()
+            db.commit()
     except Exception as e:
         db.rollback()
-        print(f"Error sending creator notification: {str(e)}")
+        failed.append(BulkTaskFailure(
+            user_id=None, error=f"Notification error: {str(e)}"))
 
+    # ✅ Final consistent return
     return BulkTaskResponse(
         success_count=len(successful),
         failure_count=len(failed),
         total_attempted=len(task_data.assigned_to_ids),
-        successful_tasks=successful,
-        failed_assignments=failed
+        successful=successful,
+        failed=failed
     )
 
 

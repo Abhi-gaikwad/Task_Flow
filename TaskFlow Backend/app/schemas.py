@@ -146,20 +146,23 @@ from app.models import UserRole, TaskStatus, TaskPriority, NotificationType
 # COMPANY SCHEMAS
 # -----------------
 
+
 class CompanyBase(BaseModel):
     name: str
     description: Optional[str] = None
+
 
 class CompanyCreate(CompanyBase):
     # Fields for company login credentials
     company_username: str
     company_password: str
-    company_email: EmailStr # NEW FIELD
+    company_email: EmailStr  # NEW FIELD
+
 
 class CompanyResponse(CompanyBase):
     id: int
-    company_username: Optional[str] = None # Include username in response
-    company_email: Optional[str] = None # NEW FIELD
+    company_username: Optional[str] = None  # Include username in response
+    company_email: Optional[str] = None  # NEW FIELD
     is_active: bool
     created_at: datetime
 
@@ -175,11 +178,13 @@ class UserBase(BaseModel):
     username: str
     is_active: bool = True
 
+
 class UserCreate(UserBase):
     password: str
     role: UserRole
     company_id: Optional[int] = None
-    can_assign_tasks: Optional[bool] = False # NEW FIELD
+    can_assign_tasks: Optional[bool] = False  # NEW FIELD
+
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
@@ -188,18 +193,22 @@ class UserUpdate(BaseModel):
     role: Optional[UserRole] = None
     company_id: Optional[int] = None
     is_active: Optional[bool] = None
-    can_assign_tasks: Optional[bool] = None # NEW FIELD
+    can_assign_tasks: Optional[bool] = None  # NEW FIELD
+
 
 class UserResponse(UserBase):
     id: int
     role: UserRole
     created_at: datetime
-    company: Optional[CompanyResponse] = None  # Added company info for hierarchy
-    can_assign_tasks: bool # NEW FIELD
+    # Added company info for hierarchy
+    company: Optional[CompanyResponse] = None
+    can_assign_tasks: bool  # NEW FIELD
 
     model_config = {"from_attributes": True}
 
 # Schema for creating admin users by company role
+
+
 class CompanyAdminCreate(BaseModel):
     email: EmailStr
     username: str
@@ -210,6 +219,7 @@ class CompanyAdminCreate(BaseModel):
 # TASK SCHEMAS
 # -----------------
 
+
 class TaskCreate(BaseModel):
     title: str
     description: Optional[str] = None
@@ -218,6 +228,8 @@ class TaskCreate(BaseModel):
     priority: TaskPriority = TaskPriority.MEDIUM
 
 # NEW: Bulk task creation schema
+
+
 class BulkTaskCreate(BaseModel):
     title: str
     description: Optional[str] = None
@@ -225,12 +237,14 @@ class BulkTaskCreate(BaseModel):
     due_date: Optional[datetime] = None
     priority: TaskPriority = TaskPriority.MEDIUM
 
+
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[TaskStatus] = None
     due_date: Optional[datetime] = None
     priority: Optional[TaskPriority] = None
+
 
 class TaskResponse(BaseModel):
     id: int
@@ -252,9 +266,12 @@ class TaskResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 # NEW: Bulk task response schemas
+
+
 class BulkTaskFailure(BaseModel):
-    user_id: int
+    user_id: Optional[int]  # can be None if unknown
     error: str
+
 
 class BulkTaskResponse(BaseModel):
     successful: List[TaskResponse]
@@ -266,6 +283,7 @@ class BulkTaskResponse(BaseModel):
 # -----------------
 # NOTIFICATION SCHEMAS
 # -----------------
+
 
 class NotificationResponse(BaseModel):
     id: int
