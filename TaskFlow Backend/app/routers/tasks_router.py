@@ -207,27 +207,25 @@ def allocate_task(
 
     # ✅ Notify the assignee
     if assignee and assignee.id:
-        print(
-            f"📢 Sending notification to assignee: {assignee.id} ({assignee.username})")
+        print(f"📢 Sending notification to assignee: {assignee.id} ({assignee.username})")
         create_notification(
             db=db,
             user_id=assignee.id,
             notification_type=NotificationType.TASK_ASSIGNED,
             title="New Task Assigned",
-            message=f"You have been assigned a new task: {task.title}",
+            message=f'You have been assigned the task "{task.title}"',
             task_id=task.id
         )
 
     # ✅ Notify the creator (if different from assignee)
     if created_by_id and created_by_id != assignee.id:
-        print(
-            f"📢 Sending notification to creator: {created_by_id} ({creator_name})")
+        print(f"📢 Sending notification to creator: {created_by_id} ({creator_name})")
         create_notification(
             db=db,
             user_id=created_by_id,
-            notification_type=NotificationType.TASK_ASSIGNED,
-            title="Task Assigned to User",
-            message=f"You assigned the task '{task.title}' to {assignee.username}",
+            notification_type=NotificationType.TASK_CREATOR_ASSIGNED,  # ✅ new type
+            title="Task Assigned",
+            message=f'You assigned the task "{task.title}" to {assignee.username}',
             task_id=task.id
         )
 
@@ -239,33 +237,40 @@ def allocate_task(
 # ---------------------------
 
 
+# tasks_router.py
+
+# ---------------------------
+# ✅ Create Bulk Tasks
+# ---------------------------
+
 @router.post("/tasks/bulk", response_model=BulkTaskResponse)
 def create_bulk_tasks(
     task_data: BulkTaskCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create multiple tasks with the same details but different assignees"""
-    # Permission check for USER role: must have can_assign_tasks permission
+    """Create multiple tasks with the same details but different assignees.
+       Only the creator will receive ONE combined notification.
+    """
+    # Permission check
     if current_user.role == UserRole.USER and not current_user.can_assign_tasks:
         raise HTTPException(
             status_code=403, detail="You don't have permission to assign tasks")
 
-    # Resolve creator ID for virtual admins and real users
+    # Resolve creator ID
     created_by_id, creator_name = resolve_creator_id(current_user, db)
-
     successful = []
     failed = []
+    assigned_usernames = []
 
+    # Create tasks
     for user_id in task_data.assigned_to_ids:
         try:
-            # Verify assignee exists
             assignee = db.get(User, user_id)
             if not assignee:
                 failed.append({"user_id": user_id, "error": "User not found"})
                 continue
 
-            # Check company permissions
             if current_user.role != UserRole.SUPER_ADMIN:
                 if assignee.company_id != current_user.company_id:
                     failed.append(
@@ -287,52 +292,56 @@ def create_bulk_tasks(
             db.commit()
             db.refresh(task)
 
-            # Build response with due date
+            # Collect usernames for one creator notification
+            if user_id != created_by_id:
+                assigned_usernames.append(assignee.username)
+
+            # Build response
             task_response = TaskResponse.model_validate(task)
             task_response.assignee_name = assignee.username
             task_response.creator_name = creator_name
             task_response.due_date = task.due_date
             successful.append(task_response)
 
-            # ✅ Notify the assignee
-            if assignee and assignee.id:
-                print(
-                    f"📢 Sending notification to assignee: {assignee.id} ({assignee.username})")
-                create_notification(
-                    db=db,
-                    user_id=assignee.id,
-                    notification_type=NotificationType.TASK_ASSIGNED,
-                    title="New Task Assigned",
-                    message=f"You have been assigned a new task: {task.title}",
-                    task_id=task.id
-                )
-
-            # ✅ Notify the creator (if different from assignee)
-            if created_by_id and created_by_id != assignee.id:
-                print(
-                    f"📢 Sending notification to creator: {created_by_id} ({creator_name})")
-                create_notification(
-                    db=db,
-                    user_id=created_by_id,
-                    notification_type=NotificationType.TASK_ASSIGNED,
-                    title="Task Assigned to User",
-                    message=f"You assigned the task '{task.title}' to {assignee.username}",
-                    task_id=task.id
-                )
-
-            db.commit()
-
         except Exception as e:
             db.rollback()
             failed.append({"user_id": user_id, "error": str(e)})
 
+    # ✅ Only send one combined notification to the creator
+    try:
+        if assigned_usernames and created_by_id not in task_data.assigned_to_ids:
+            if len(assigned_usernames) == 1:
+                usernames_str = assigned_usernames[0]
+                title = "Task Assigned to User"
+            elif len(assigned_usernames) == 2:
+                usernames_str = f"{assigned_usernames[0]} and {assigned_usernames[1]}"
+                title = "Task Assigned to Users"
+            else:
+                usernames_str = f"{', '.join(assigned_usernames[:-1])}, and {assigned_usernames[-1]}"
+                title = "Task Assigned to Users"
+
+            create_notification(
+                db=db,
+                user_id=created_by_id,
+                notification_type=NotificationType.TASK_CREATOR_ASSIGNED,  # keep consistent
+                title=title,
+                message=f'You assigned the task "{task_data.title}" to {usernames_str}',
+                task_id=successful[0].id if successful else None
+            )
+
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"Error sending creator notification: {str(e)}")
+
     return BulkTaskResponse(
-        successful=successful,
-        failed=failed,
-        total_attempted=len(task_data.assigned_to_ids),
         success_count=len(successful),
-        failure_count=len(failed)
+        failure_count=len(failed),
+        total_attempted=len(task_data.assigned_to_ids),
+        successful_tasks=successful,
+        failed_assignments=failed
     )
+
 
 # ---------------------------
 # ✅ Update Task Status

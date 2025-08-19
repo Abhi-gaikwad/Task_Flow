@@ -64,7 +64,7 @@ def get_notifications(
             notif.type = notif.type.lower()
 
     print(
-        f"🔢 Fetched {len(notifications)} notifications for user_id={real_user_id}")
+        f"📢 Fetched {len(notifications)} notifications for user_id={real_user_id}")
     return notifications
 
 # ---------------------------
@@ -161,7 +161,7 @@ def create_notification(
     return notification
 
 # ---------------------------
-# Create Dual Notifications
+# Create Dual Notifications (Single Assignment)
 # ---------------------------
 
 
@@ -181,30 +181,26 @@ def create_task_assignment_notifications(
             user_id=assigned_user_id,
             notification_type=NotificationType.TASK_ASSIGNED,
             title="New Task Assigned",
-            message=f"You have been assigned a new task: {task_title}",
+            message=f'You have been assigned the task "{task_title}"',
             task_id=task_id
         )
         if assigned_notification:
             notifications.append(assigned_notification)
-            print(
-                f"✅ Task assignment notification created for assigned user {assigned_user_id}")
 
         # Notification for the creator (only if different)
-        if creator_user_id != assigned_user_id:
-            creator_notification = create_notification(
-                db=db,
-                user_id=creator_user_id,
-                notification_type=NotificationType.TASK_STATUS_UPDATED,
-                title="Task Created Successfully",
-                message=f'Task "{task_title}" has been successfully assigned to {assigned_user_name}',
-                task_id=task_id
-            )
-            if creator_notification:
-                notifications.append(creator_notification)
-                print(
-                    f"✅ Task creation confirmation notification created for creator {creator_user_id}")
+        # if creator_user_id != assigned_user_id:
+        #     creator_notification = create_notification(
+        #         db=db,
+        #         user_id=creator_user_id,
+        #         notification_type=NotificationType.TASK_CREATOR_ASSIGNED,
+        #         title="Task Assigned to User",
+        #         message=f'You assigned the task "{task_title}" to {assigned_user_name}',
+        #         task_id=task_id
+        #     )
+        #     if creator_notification:
+        #         notifications.append(creator_notification)
 
-        return tuple(notifications)
+        # return tuple(notifications)
 
     except Exception as e:
         print(f"❌ Error creating task assignment notifications: {str(e)}")
@@ -221,6 +217,15 @@ def create_bulk_task_assignment_notifications(
     assignments: List[dict],
     task_title: str
 ):
+    """
+    Create notifications for bulk task assignments.
+    
+    Args:
+        assignments: List of dicts with keys: 
+            - assigned_user_id: int
+            - task_id: int 
+            - assigned_user_name: str (optional)
+    """
     results = {
         "assigned_user_notifications": [],
         "creator_notifications": [],
@@ -228,38 +233,58 @@ def create_bulk_task_assignment_notifications(
     }
 
     try:
-        for assignment in assignments:
-            try:
-                assigned_notification = create_notification(
-                    db=db,
-                    user_id=assignment["assigned_user_id"],
-                    notification_type=NotificationType.TASK_ASSIGNED,
-                    title="New Task Assigned",
-                    message=f"You have been assigned a new task: {task_title}",
-                    task_id=assignment["task_id"]
-                )
-                if assigned_notification:
-                    results["assigned_user_notifications"].append(
-                        assigned_notification)
+        assigned_usernames = []  # collect all usernames for creator message
 
-            except Exception as e:
-                error_msg = f"Failed to create notification for assignment {assignment}: {str(e)}"
-                print(f"❌ {error_msg}")
-                results["errors"].append(error_msg)
+        # Create notification for each assignee
+        # for assignment in assignments:
+        #     try:
+        #         assigned_notification = create_notification(
+        #             db=db,
+        #             user_id=assignment["assigned_user_id"],
+        #             notification_type=NotificationType.TASK_ASSIGNED,
+        #             title="New Task Assigned",
+        #             message=f'You have been assigned the task "{task_title}"',
+        #             task_id=assignment["task_id"]
+        #         )
+        #         if assigned_notification:
+        #             results["assigned_user_notifications"].append(
+        #                 assigned_notification
+        #             )
+                
+        #         # Collect username for creator message
+        #         username = assignment.get("assigned_user_name", f"User {assignment['assigned_user_id']}")
+        #         assigned_usernames.append(username)
 
+        #     except Exception as e:
+        #         error_msg = f"Failed to create notification for assignment {assignment}: {str(e)}"
+        #         print(f"❌ {error_msg}")
+        #         results["errors"].append(error_msg)
+
+        # ✅ Create ONE notification for creator with all usernames
         if results["assigned_user_notifications"] and creator_user_id not in [a["assigned_user_id"] for a in assignments]:
             try:
+                # Format usernames properly
+                if len(assigned_usernames) == 1:
+                    usernames_str = assigned_usernames[0]
+                    title = "Task Assigned to User"
+                elif len(assigned_usernames) == 2:
+                    usernames_str = f"{assigned_usernames[0]} and {assigned_usernames[1]}"
+                    title = "Task Assigned to Users"
+                else:
+                    # For 3+ users: "User1, User2, and User3"
+                    usernames_str = f"{', '.join(assigned_usernames[:-1])}, and {assigned_usernames[-1]}"
+                    title = "Task Assigned to Users"
+
                 creator_notification = create_notification(
                     db=db,
                     user_id=creator_user_id,
-                    notification_type=NotificationType.TASK_STATUS_UPDATED,
-                    title="Tasks Created Successfully",
-                    message=f'Task "{task_title}" has been successfully assigned to {len(results["assigned_user_notifications"])} user(s)',
+                    notification_type=NotificationType.TASK_CREATOR_ASSIGNED,
+                    title=title,
+                    message=f'You assigned the task "{task_title}" to {usernames_str}',
                     task_id=assignments[0]["task_id"] if assignments else None
                 )
                 if creator_notification:
-                    results["creator_notifications"].append(
-                        creator_notification)
+                    results["creator_notifications"].append(creator_notification)
 
             except Exception as e:
                 error_msg = f"Failed to create creator notification: {str(e)}"
@@ -267,7 +292,8 @@ def create_bulk_task_assignment_notifications(
                 results["errors"].append(error_msg)
 
         print(
-            f"✅ Bulk notifications created: {len(results['assigned_user_notifications'])} assigned, {len(results['creator_notifications'])} creator")
+            f"✅ Bulk notifications created: {len(results['assigned_user_notifications'])} assigned, {len(results['creator_notifications'])} creator"
+        )
         return results
 
     except Exception as e:
@@ -275,3 +301,31 @@ def create_bulk_task_assignment_notifications(
         print(f"❌ {error_msg}")
         results["errors"].append(error_msg)
         return results
+
+
+# ---------------------------
+# Unified Task Assignment Function (NEW)
+# ---------------------------
+
+
+def create_unified_task_assignment_notifications(
+    db: Session,
+    creator_user_id: int,
+    assignments: List[dict],  # Each dict has: assigned_user_id, task_id, assigned_user_name
+    task_title: str
+):
+    """
+    Unified function to create task assignment notifications.
+    Works for both single and multiple assignments with consistent messaging.
+    """
+    
+    if not assignments:
+        return {"assigned_user_notifications": [], "creator_notifications": [], "errors": []}
+    
+    # Use bulk function for consistent messaging regardless of count
+    return create_bulk_task_assignment_notifications(
+        db=db,
+        creator_user_id=creator_user_id,
+        assignments=assignments,
+        task_title=task_title
+    )

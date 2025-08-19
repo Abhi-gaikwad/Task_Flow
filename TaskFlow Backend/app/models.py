@@ -157,7 +157,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
 import enum
-
+from enum import Enum
 # ---------- ENUMS -------------------------------------------------
 class UserRole(enum.Enum):
     SUPER_ADMIN = "super_admin"
@@ -179,12 +179,14 @@ class TaskPriority(enum.Enum):
     URGENT  = "urgent"
 
 
-class NotificationType(enum.Enum):
+class NotificationType(str, Enum):
     TASK_ASSIGNED = "task_assigned"
+    TASK_CREATOR_ASSIGNED = "task_creator_assigned"
     TASK_STATUS_UPDATED = "task_status_updated"
     TASK_COMPLETED = "task_completed"
     TASK_DUE_SOON = "task_due_soon"
-
+    TASK_CREATED = "task_created"
+    BULK_TASK_ASSIGNED = "bulk_task_assigned" 
 
 # ---------- COMPANY ----------------------------------------------
 class Company(Base):
@@ -301,3 +303,5 @@ class Notification(Base):
     # relationships
     user = relationship("User", back_populates="notifications")
     task = relationship("Task")
+
+    

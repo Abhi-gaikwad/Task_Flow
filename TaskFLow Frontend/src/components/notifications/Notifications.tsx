@@ -93,38 +93,46 @@ export const Notifications: React.FC = () => {
   };
 
   const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case 'task_assigned':
-        return <CheckCircle className="w-5 h-5 text-blue-600" />;
-      case 'task_status_updated':
-        return <Info className="w-5 h-5 text-purple-600" />;
-      case 'task_completed':
-        return <CheckCircle className="w-5 h-5 text-green-600" />;
-      case 'task_due_soon':
-        return <AlertTriangle className="w-5 h-5 text-red-600" />;
-      case 'task_created':
-        return <Plus className="w-5 h-5 text-green-600" />;
-      default:
-        return <Info className="w-5 h-5 text-gray-600" />;
-    }
-  };
+  switch (type) {
+    case 'task_assigned':
+      return <CheckCircle className="w-5 h-5 text-blue-600" />;
+    case 'task_creator_assigned':
+      return <CheckCircle className="w-5 h-5 text-indigo-600" />;
+    case 'task_status_updated':
+      return <Info className="w-5 h-5 text-purple-600" />;
+    case 'task_completed':
+      return <CheckCircle className="w-5 h-5 text-green-600" />;
+    case 'task_due_soon':
+      return <AlertTriangle className="w-5 h-5 text-red-600" />;
+    case 'task_created':
+      return <Plus className="w-5 h-5 text-green-600" />;
+    case 'bulk_task_assigned':
+      return <Plus className="w-5 h-5 text-teal-600" />;
+    default:
+      return <Info className="w-5 h-5 text-gray-600" />;
+  }
+};
 
-  const getNotificationBg = (type: string) => {
-    switch (type) {
-      case 'task_assigned':
-        return 'bg-blue-50 border-blue-200';
-      case 'task_status_updated':
-        return 'bg-purple-50 border-purple-200';
-      case 'task_completed':
-        return 'bg-green-50 border-green-200';
-      case 'task_due_soon':
-        return 'bg-red-50 border-red-200';
-      case 'task_created':
-        return 'bg-green-50 border-green-200';
-      default:
-        return 'bg-gray-50 border-gray-200';
-    }
-  };
+const getNotificationBg = (type: string) => {
+  switch (type) {
+    case 'task_assigned':
+      return 'bg-blue-50 border-blue-200';
+    case 'task_creator_assigned':
+      return 'bg-indigo-50 border-indigo-200';
+    case 'task_status_updated':
+      return 'bg-purple-50 border-purple-200';
+    case 'task_completed':
+      return 'bg-green-50 border-green-200';
+    case 'task_due_soon':
+      return 'bg-red-50 border-red-200';
+    case 'task_created':
+      return 'bg-green-50 border-green-200';
+    case 'bulk_task_assigned':
+      return 'bg-teal-50 border-teal-200';
+    default:
+      return 'bg-gray-50 border-gray-200';
+  }
+};
 
   // Filter out any error-related notifications before rendering
   const filteredNotifications = notifications.filter(
