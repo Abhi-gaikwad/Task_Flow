@@ -322,10 +322,28 @@ def create_bulk_tasks(
                 usernames_str = f"{', '.join(assigned_usernames[:-1])}, and {assigned_usernames[-1]}"
                 title = "Task Assigned to Users"
 
+            #  savee notification of assignes to database
+            for uid, uname in zip(task_data.assigned_to_ids, assigned_usernames):
+                try:
+                    create_notification(
+                        db=db,
+                        user_id=uid,
+                        notification_type=NotificationType.TASK_ASSIGNED,
+                        title="Task Assigned",
+                        message=f'You have been assigned the task "{task_data.title}"',
+                        task_id=successful[0].id if successful else None
+                    )
+                except Exception as e:
+                    failed.append(
+                        BulkTaskFailure(
+                            user_id=uid, error=f"Notification error: {str(e)}")
+                    )
+
+            # save notiffication for bulk in creator notification
             create_notification(
                 db=db,
                 user_id=created_by_id,
-                notification_type=NotificationType.TASK_CREATOR_ASSIGNED,
+                notification_type=NotificationType.BULK_TASK_ASSIGNED,
                 title=title,
                 message=f'You assigned the task "{task_data.title}" to {usernames_str}',
                 task_id=successful[0].id if successful else None

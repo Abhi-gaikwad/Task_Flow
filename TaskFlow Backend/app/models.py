@@ -64,7 +64,7 @@
 #     role            = Column(SqlaEnum(UserRole), default=UserRole.USER, nullable=False)
 #     company_id      = Column(Integer, ForeignKey("companies.id"))
 #     is_active       = Column(Boolean, default=True, nullable=False)
-    
+
 #     created_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
 #     updated_at      = Column(DateTime, onupdate=datetime.utcnow)
 
@@ -93,7 +93,7 @@
 #         back_populates="creator",
 #         foreign_keys="Task.created_by"
 #     )
-    
+
 #     # Notifications for this user
 #     notifications = relationship("Notification", back_populates="user")
 
@@ -116,14 +116,14 @@
 
 #     # relationships
 #     company = relationship("Company", back_populates="tasks")
-    
+
 #     # The person who needs to do this task
 #     assignee = relationship(
 #         "User",
 #         foreign_keys=[assigned_to_id],
 #         back_populates="allocated_tasks"
 #     )
-    
+
 #     # The person who created/assigned the task
 #     creator = relationship(
 #         "User",
@@ -159,48 +159,53 @@ from app.database import Base
 import enum
 from enum import Enum
 # ---------- ENUMS -------------------------------------------------
+
+
 class UserRole(enum.Enum):
     SUPER_ADMIN = "super_admin"
-    COMPANY     = "company"      # New role for company login
-    ADMIN       = "admin"
-    USER        = "user"
+    COMPANY = "company"      # New role for company login
+    ADMIN = "admin"
+    USER = "user"
 
 
 class TaskStatus(enum.Enum):
-    PENDING     = "pending"
+    PENDING = "pending"
     IN_PROGRESS = "in_progress"
-    COMPLETED   = "completed"
+    COMPLETED = "completed"
 
 
 class TaskPriority(enum.Enum):
-    LOW     = "low"
-    MEDIUM  = "medium"
-    HIGH    = "high"
-    URGENT  = "urgent"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
 
 
 class NotificationType(str, Enum):
-    TASK_ASSIGNED = "task_assigned"
-    TASK_CREATOR_ASSIGNED = "task_creator_assigned"
-    TASK_STATUS_UPDATED = "task_status_updated"
-    TASK_COMPLETED = "task_completed"
-    TASK_DUE_SOON = "task_due_soon"
-    TASK_CREATED = "task_created"
-    BULK_TASK_ASSIGNED = "bulk_task_assigned" 
+    TASK_ASSIGNED = "TASK_ASSIGNED"
+    TASK_CREATOR_ASSIGNED = "TASK_CREATOR_ASSIGNED"
+    TASK_STATUS_UPDATED = "TASK_STATUS_UPDATED"
+    TASK_COMPLETED = "TASK_COMPLETED"
+    TASK_DUE_SOON = "TASK_DUE_SOON"
+    TASK_CREATED = "TASK_CREATED"
+    BULK_TASK_ASSIGNED = "BULK_TASK_ASSIGNED"
+
 
 # ---------- COMPANY ----------------------------------------------
+
+
 class Company(Base):
     __tablename__ = "companies"
 
-    id                   = Column(Integer, primary_key=True, index=True)
-    name                 = Column(String, nullable=False)
-    description          = Column(Text)
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text)
     # New fields for company login credentials
-    company_username     = Column(String, unique=True, nullable=True)
+    company_username = Column(String, unique=True, nullable=True)
     company_hashed_password = Column(String, nullable=True)
-    company_email        = Column(String, unique=True, nullable=False) # NEW FIELD
-    created_at           = Column(DateTime, default=datetime.utcnow, nullable=False)
-    is_active            = Column(Boolean, default=True, nullable=False)
+    company_email = Column(String, unique=True, nullable=False)  # NEW FIELD
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
 
     # relationships
     users = relationship("User", back_populates="company")
@@ -211,26 +216,27 @@ class Company(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id              = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True)
     # email           = Column(String, unique=True, nullable=False)
-    email           = Column(String, index=True, nullable=False)
-    username        = Column(String, unique=True, nullable=False)
+    email = Column(String, index=True, nullable=False)
+    username = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)
-    role            = Column(SqlaEnum(UserRole), default=UserRole.USER, nullable=False)
-    company_id      = Column(Integer, ForeignKey("companies.id"))
-    is_active       = Column(Boolean, default=True, nullable=False)
-    
-    created_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at      = Column(DateTime, onupdate=datetime.utcnow)
+    role = Column(SqlaEnum(UserRole), default=UserRole.USER, nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id"))
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
 
     # profile / extras
-    full_name           = Column(String)
-    avatar_url          = Column(String)
-    phone_number        = Column(String) 
-    department          = Column(String)
-    about_me            = Column(Text)
-    preferred_language  = Column(String, default="en")
-    can_assign_tasks    = Column(Boolean, default=False, nullable=False) # NEW FIELD
+    full_name = Column(String)
+    avatar_url = Column(String)
+    phone_number = Column(String)
+    department = Column(String)
+    about_me = Column(Text)
+    preferred_language = Column(String, default="en")
+    can_assign_tasks = Column(Boolean, default=False,
+                              nullable=False)  # NEW FIELD
 
     # relationships
     company = relationship("Company", back_populates="users")
@@ -248,37 +254,38 @@ class User(Base):
         back_populates="creator",
         foreign_keys="Task.created_by"
     )
-    
+
     # Notifications for this user
     notifications = relationship("Notification", back_populates="user")
 
 # ---------- TASK --------------------------------------------------
+
+
 class Task(Base):
     __tablename__ = "tasks"
 
-    id             = Column(Integer, primary_key=True, index=True)
-    title          = Column(String, nullable=False)
-    description    = Column(String)
-    status         = Column(SqlaEnum(TaskStatus), default=TaskStatus.PENDING)
-    priority       = Column(SqlaEnum(TaskPriority), default=TaskPriority.MEDIUM)
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(String)
+    status = Column(SqlaEnum(TaskStatus), default=TaskStatus.PENDING)
+    priority = Column(SqlaEnum(TaskPriority), default=TaskPriority.MEDIUM)
     assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    created_by  = Column(Integer, ForeignKey("users.id"))
-    company_id     = Column(Integer, ForeignKey("companies.id"))
-    created_at     = Column(DateTime, default=datetime.utcnow, nullable=False)
-    due_date       = Column(DateTime)
+    created_by = Column(Integer, ForeignKey("users.id"))
+    company_id = Column(Integer, ForeignKey("companies.id"))
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    due_date = Column(DateTime)
     completed_at = Column(DateTime, nullable=True)
-
 
     # relationships
     company = relationship("Company", back_populates="tasks")
-    
+
     # The person who needs to do this task
     assignee = relationship(
         "User",
         foreign_keys=[assigned_to_id],
         back_populates="allocated_tasks"
     )
-    
+
     # The person who created/assigned the task
     creator = relationship(
         "User",
@@ -291,17 +298,16 @@ class Task(Base):
 class Notification(Base):
     __tablename__ = "notifications"
 
-    id          = Column(Integer, primary_key=True, index=True)
-    user_id     = Column(Integer, ForeignKey("users.id"), nullable=False)
-    type        = Column(SqlaEnum(NotificationType), nullable=False)
-    title       = Column(String, nullable=False)
-    message     = Column(String, nullable=False)
-    task_id     = Column(Integer, ForeignKey("tasks.id"))
-    is_read     = Column(Boolean, default=False, nullable=False)
-    created_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    type = Column(SqlaEnum(NotificationType, values_callable=lambda obj: [
+                  e.value for e in obj]), nullable=False)
+    title = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    task_id = Column(Integer, ForeignKey("tasks.id"))
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # relationships
     user = relationship("User", back_populates="notifications")
     task = relationship("Task")
-
-    
