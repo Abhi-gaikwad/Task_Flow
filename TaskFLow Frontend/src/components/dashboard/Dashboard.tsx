@@ -2,13 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApp } from '../../contexts/AppContext';
-// import { usersAPI, companyAPI } from '../../services/api';
 import CompanyCreationForm from '../admin/CompanyCreationForm';
 import { Modal } from '../common/Modal';
 import { useLocation } from "react-router-dom";
 import { usersAPI, companyAPI, tasksAPI, notificationsAPI } from '../../services/api';
-
-
+import { analyticsAPI } from '../../services/api';
 
 import {
   Users,
@@ -26,8 +24,6 @@ import {
   Mail,
   Plus,
   CheckCircle,
-  // KeyRound, // Not used as much for company cards if direct login is the only path
-  // LogIn   // No longer needed in Quick Actions for super_admin
 } from 'lucide-react';
 
 interface DashboardStats {
@@ -35,8 +31,10 @@ interface DashboardStats {
   totalCompanies: number;
   totalTasks: number;
   pendingTasks: number;
+  inProgressTasks: number;
   completedTasks: number;
   overdueTasks: number;
+  upcomingTasks: number;
   activeUsers: number;
   inactiveUsers: number;
 }
@@ -72,7 +70,7 @@ interface Company {
 }
 
 export const Dashboard: React.FC = () => {
-  const { user } = useAuth(); // Removed companyLogin from here
+  const { user } = useAuth();
   const { tasks = [], notifications = [], setTasks } = useApp();
 
   const [stats, setStats] = useState<DashboardStats>({
@@ -80,8 +78,10 @@ export const Dashboard: React.FC = () => {
     totalCompanies: 0,
     totalTasks: 0,
     pendingTasks: 0,
+    inProgressTasks: 0,
     completedTasks: 0,
     overdueTasks: 0,
+    upcomingTasks: 0,
     activeUsers: 0,
     inactiveUsers: 0,
   });
@@ -95,40 +95,34 @@ export const Dashboard: React.FC = () => {
   const [companiesLoading, setCompaniesLoading] = useState(false);
 
   const [showCreateCompanyModal, setShowCreateCompanyModal] = useState(false);
-  // Removed company login related states:
-  // const [showCompanyLoginModal, setShowCompanyLoginModal] = useState(false);
-  // const [companyLoginData, setCompanyLoginData] = useState({ username: '', password: '' });
-  // const [companyLoginError, setCompanyLoginError] = useState<string | null>(null);
-  // const [companyLoginLoading, setCompanyLoginLoading] = useState(false);
-
 
   const loadUsers = async () => {
-  if (user?.role === 'admin' && user.company_id) {
+    if (!user || (user.role !== 'admin' && user.role !== 'super_admin' && user.role !== 'company')) {
+      console.log('[Dashboard] User not authorized to load users');
+      setUsers([]);
+      return;
+    }
+
     try {
       setUsersLoading(true);
-      const usersData = await usersAPI.getUsers({   // ✅ FIXED
+      console.log('[Dashboard] Loading users...');
+      
+      const usersData = await usersAPI.getUsers({
         limit: 100,
         is_active: undefined,
       });
+      
+      console.log('[Dashboard] Users loaded:', usersData?.length || 0);
       setUsers(usersData || []);
-      const activeUsers = usersData?.filter(u => u.is_active).length || 0;
-      const inactiveUsers = usersData?.filter(u => !u.is_active).length || 0;
-      setStats(prevStats => ({
-        ...prevStats,
-        totalUsers: usersData?.length || 0,
-        activeUsers,
-        inactiveUsers,
-      }));
+      
     } catch (err: any) {
-      console.error('Failed to load users:', err);
+      console.error('[Dashboard] Failed to load users:', err);
       setError('Failed to load users data');
+      setUsers([]);
     } finally {
       setUsersLoading(false);
     }
-  } else {
-    setUsers([]);
-  }
-};
+  };
 
   const loadCompanies = async () => {
     if (!user || user.role !== 'super_admin') {
@@ -140,10 +134,6 @@ export const Dashboard: React.FC = () => {
       const companiesData = await companyAPI.listCompanies();
       if (Array.isArray(companiesData)) {
         setCompanies(companiesData);
-        setStats(prevStats => ({
-          ...prevStats,
-          totalCompanies: companiesData.length,
-        }));
       }
     } catch (err: any) {
       console.error('Failed to load companies:', err);
@@ -155,188 +145,322 @@ export const Dashboard: React.FC = () => {
 
   const location = useLocation();
 
-useEffect(() => {
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      let freshTasks: any[] = [];
-      let companyUsers: any[] = [];
-      let companyList: any[] = [];
-      companyList = await companyAPI.listCompanies();
-
-      if (user?.role ===  "admin") {
-        // 🟢 Super Admin: get everything
-        companyList = await companyAPI.listCompanies();
-        freshTasks = await tasksAPI.getAllTasks();   // all tasks (no filter)
-        companyUsers = await usersAPI.getUsers();    // all users
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      if (!user) {
+        console.log('[Dashboard] No user found, skipping load');
+        setLoading(false);
+        return;
       }
-      // 🔹 Company: see everything inside their company (all users + all tasks)
-        else if (user?.role === "company") {
-  try {
-    const [companyUsers, companyTasks] = await Promise.all([
-      usersAPI.getUsers({ company_id: user.company_id }),
-      tasksAPI.getAllTasks({ company_id: user.company_id })
-    ]);
 
-    setUsers(companyUsers || []);
-    if (setTasks) setTasks(companyTasks || []);
+      try {
+        setLoading(true);
+        setError(null);
+        console.log('[Dashboard] Starting to load dashboard data for user:', {
+          role: user.role,
+          id: user.id,
+          email: user.email,
+          company_id: user.company_id
+        });
 
-    setStats({
-      totalCompanies: 1,
-      totalUsers: companyUsers?.length || 0,
-      totalTasks: companyTasks?.length || 0,
-      pendingTasks: companyTasks?.filter(
-        t => t.status === "pending" || t.status === "in_progress"
-      ).length || 0,
-      completedTasks: companyTasks?.filter(
-        t => t.status === "completed"
-      ).length || 0,
-      overdueTasks: companyTasks?.filter(t => {
-        if (!t.due_date) return false;
-        return new Date(t.due_date) < new Date() && t.status !== "completed";
-      }).length || 0,
-      activeUsers: companyUsers?.filter(u => u.is_active).length || 0,
-      inactiveUsers: companyUsers?.filter(u => !u.is_active).length || 0,
-    });
+        // Try analytics API first
+        try {
+          console.log('[Dashboard] Attempting analytics API call...');
+          const analyticsData = await analyticsAPI.getDashboardAnalytics();
+          console.log('[Dashboard] Analytics API success! Data received:', analyticsData);
 
-    // Load recent activities for company
-    const activities: RecentActivity[] = [];
-    companyTasks?.slice(0, 3).forEach(task => {
-      activities.push({
-        id: `task-${task.id}`,
-        type: "task_created",
-        message: `Task "${task.title}" created`,
-        timestamp: new Date(task.created_at),
-        user: task.assignee_name,
+          // Extract data from the corrected response structure
+          const totals = analyticsData.totals || {};
+          const recentActivity = analyticsData.recent_activity || {};
+          const prioritySummary = analyticsData.priority_summary || {};
+          
+          const newStats: DashboardStats = {
+            totalCompanies: totals.total_companies || 0,
+            totalUsers: totals.total_users || 0,
+            activeUsers: totals.active_users || 0,
+            inactiveUsers: totals.inactive_users || 0,
+            totalTasks: totals.total_tasks || 0,
+            pendingTasks: totals.pending_tasks || 0,
+            inProgressTasks: totals.in_progress_tasks || 0,
+            completedTasks: totals.completed_tasks || 0,
+            overdueTasks: totals.overdue_tasks || 0,
+            upcomingTasks: totals.upcoming_tasks || 0,
+          };
+
+          console.log('[Dashboard] Setting stats from analytics:', newStats);
+          setStats(newStats);
+
+          // Generate activities from analytics
+          const activities: RecentActivity[] = [];
+          
+          // Add recent activity
+          if (recentActivity.tasks_created_last_7_days > 0) {
+            activities.push({
+              id: "created-7d",
+              type: "task_created",
+              message: `${recentActivity.tasks_created_last_7_days} tasks created in last 7 days`,
+              timestamp: new Date(),
+            });
+          }
+          
+          if (recentActivity.tasks_completed_last_7_days > 0) {
+            activities.push({
+              id: "completed-7d",
+              type: "task_completed",
+              message: `${recentActivity.tasks_completed_last_7_days} tasks completed in last 7 days`,
+              timestamp: new Date(),
+            });
+          }
+
+          // Add priority summary to activities
+          Object.entries(prioritySummary).forEach(([priority, count]) => {
+            if (typeof count === 'number' && count > 0) {
+              activities.push({
+                id: `priority-${priority}`,
+                type: "task_created",
+                message: `${count} ${priority} priority tasks`,
+                timestamp: new Date(),
+              });
+            }
+          });
+
+          // Add scope-specific activities
+          if (analyticsData.scope === 'global' && newStats.totalCompanies > 0) {
+            activities.push({
+              id: "companies-count",
+              type: "company_created",
+              message: `Managing ${newStats.totalCompanies} companies`,
+              timestamp: new Date(),
+            });
+          }
+
+          if ((analyticsData.scope === 'company' || analyticsData.scope === 'global') && newStats.totalUsers > 0) {
+            activities.push({
+              id: "users-count",
+              type: "user_added",
+              message: `${newStats.activeUsers} active users out of ${newStats.totalUsers} total`,
+              timestamp: new Date(),
+            });
+          }
+
+          // Add completion time info if available
+          if (analyticsData.average_completion_time_hours > 0) {
+            activities.push({
+              id: "avg-completion",
+              type: "task_completed",
+              message: `Average task completion time: ${analyticsData.average_completion_time_hours.toFixed(1)} hours`,
+              timestamp: new Date(),
+            });
+          }
+
+          // If no activities, add a default one based on role
+          if (activities.length === 0) {
+            let message = "Welcome to your dashboard!";
+            if (analyticsData.scope === 'company') {
+              message = "Company dashboard ready - start creating tasks!";
+            } else if (analyticsData.scope === 'user') {
+              message = "Your personal task dashboard - stay productive!";
+            }
+            
+            activities.push({
+              id: "welcome",
+              type: "task_created",
+              message: message,
+              timestamp: new Date(),
+            });
+          }
+
+          setRecentActivities(activities);
+          console.log('[Dashboard] Analytics data loaded successfully');
+
+        } catch (analyticsError: any) {
+          console.error('[Dashboard] Analytics API failed:', {
+            error: analyticsError,
+            message: analyticsError.message,
+            status: analyticsError.response?.status,
+            data: analyticsError.response?.data
+          });
+          
+          // Fallback: Load basic task data
+          console.log('[Dashboard] Starting fallback data loading...');
+          
+          try {
+            let freshTasks = [];
+            console.log('[Dashboard] Loading tasks for role:', user.role);
+            
+            if (user.role === 'user') {
+              freshTasks = await tasksAPI.getMyTasks({ limit: 50 });
+              console.log('[Dashboard] Loaded user tasks:', freshTasks?.length);
+            } else if (user.role === 'admin' || user.role === 'company' || user.role === 'super_admin') {
+              freshTasks = await tasksAPI.getAllTasks({ limit: 50 });
+              console.log('[Dashboard] Loaded all tasks:', freshTasks?.length);
+            }
+            
+            // Ensure freshTasks is an array
+            if (!Array.isArray(freshTasks)) {
+              console.warn('[Dashboard] Tasks data is not an array, using empty array');
+              freshTasks = [];
+            }
+            
+            // Calculate stats from tasks
+            const now = new Date();
+            const fallbackStats: DashboardStats = {
+              totalTasks: freshTasks.length,
+              pendingTasks: freshTasks.filter(t => t.status === 'pending').length,
+              inProgressTasks: freshTasks.filter(t => t.status === 'in_progress').length,
+              completedTasks: freshTasks.filter(t => t.status === 'completed').length,
+              overdueTasks: freshTasks.filter(t => {
+                if (!t.due_date || t.status === 'completed') return false;
+                try {
+                  return new Date(t.due_date) < now;
+                } catch (e) {
+                  return false;
+                }
+              }).length,
+              upcomingTasks: freshTasks.filter(t => {
+                if (!t.due_date || t.status === 'completed') return false;
+                try {
+                  const dueDate = new Date(t.due_date);
+                  const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+                  return dueDate >= now && dueDate <= weekFromNow;
+                } catch (e) {
+                  return false;
+                }
+              }).length,
+              totalUsers: 0,
+              totalCompanies: 0,
+              activeUsers: 0,
+              inactiveUsers: 0,
+            };
+            
+            console.log('[Dashboard] Fallback stats calculated:', fallbackStats);
+            setStats(fallbackStats);
+            
+            if (setTasks && typeof setTasks === 'function') {
+              setTasks(freshTasks);
+            }
+            
+            // Generate activities from recent tasks
+            const fallbackActivities: RecentActivity[] = [];
+            const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            
+            freshTasks.forEach((task, index) => {
+              if (index < 5) { // Limit to 5 activities
+                try {
+                  const createdAt = new Date(task.created_at);
+                  const isRecent = createdAt >= sevenDaysAgo;
+                  
+                  fallbackActivities.push({
+                    id: `task-${task.id}`,
+                    type: task.status === 'completed' ? "task_completed" : "task_created",
+                    message: `Task "${task.title}" was ${task.status === 'completed' ? 'completed' : 'assigned'}${isRecent ? ' (recent)' : ''}`,
+                    timestamp: createdAt,
+                    user: task.assignee_name || task.creator_name,
+                  });
+                } catch (e) {
+                  console.warn('[Dashboard] Error processing task for activity:', task.id, e);
+                }
+              }
+            });
+
+            // Sort by most recent
+            fallbackActivities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+            
+            // If no activities, add a default one
+            if (fallbackActivities.length === 0) {
+              fallbackActivities.push({
+                id: "no-tasks",
+                type: "task_created",
+                message: "No recent task activity",
+                timestamp: new Date(),
+              });
+            }
+            
+            setRecentActivities(fallbackActivities);
+            console.log('[Dashboard] Fallback data loaded successfully');
+            
+          } catch (fallbackError: any) {
+            console.error('[Dashboard] Fallback loading also failed:', fallbackError);
+            
+            // Set minimal working state
+            setStats({
+              totalTasks: 0,
+              pendingTasks: 0,
+              inProgressTasks: 0,
+              completedTasks: 0,
+              overdueTasks: 0,
+              upcomingTasks: 0,
+              totalUsers: 0,
+              totalCompanies: 0,
+              activeUsers: 0,
+              inactiveUsers: 0,
+            });
+            setRecentActivities([{
+              id: "error",
+              type: "task_created",
+              message: "Unable to load recent activities",
+              timestamp: new Date(),
+            }]);
+            
+            console.log('[Dashboard] Set minimal working state due to fallback failure');
+          }
+        }
+
+        // Load additional role-specific data
+        try {
+          if (user.role === "super_admin") {
+            console.log('[Dashboard] Loading companies for super admin...');
+            await loadCompanies();
+          }
+          if (user.role === "admin" || user.role === "company") {
+            console.log('[Dashboard] Loading users for admin/company...');
+            await loadUsers();
+          }
+        } catch (roleSpecificError: any) {
+          console.error('[Dashboard] Role-specific data loading failed:', roleSpecificError);
+          // Don't fail the entire dashboard for role-specific data
+        }
+
+      } catch (generalError: any) {
+        console.error('[Dashboard] General dashboard loading error:', generalError);
+        
+        setError('Failed to load dashboard. Please try refreshing the page.');
+        setStats({
+          totalTasks: 0,
+          pendingTasks: 0,
+          inProgressTasks: 0,
+          completedTasks: 0,
+          overdueTasks: 0,
+          upcomingTasks: 0,
+          totalUsers: 0,
+          totalCompanies: 0,
+          activeUsers: 0,
+          inactiveUsers: 0,
+        });
+        setRecentActivities([{
+          id: "general-error",
+          type: "task_created",
+          message: "Dashboard temporarily unavailable",
+          timestamp: new Date(),
+        }]);
+      } finally {
+        console.log('[Dashboard] Finished loading dashboard data');
+        setLoading(false);
+      }
+    };
+
+    if (location.pathname.includes("/dashboard") && user) {
+      console.log('[Dashboard] Conditions met, starting dashboard load...');
+      loadDashboardData();
+    } else {
+      console.log('[Dashboard] Conditions not met for loading:', { 
+        pathIncludes: location.pathname.includes("/dashboard"), 
+        hasUser: !!user,
+        currentPath: location.pathname
       });
-    });
-
-    setRecentActivities(
-      activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-    );
-
-    setLoading(false);
-    return;
-  } catch (err) {
-    console.error("Company dashboard error:", err);
-    setError("Failed to load company data");
-    setLoading(false);
-    return;
-  }
-}
-
-      else if (user?.role === "admin" && user.company_id) {
-        // 🟠 Admin: only company scope
-        freshTasks = await tasksAPI.getAllTasks({ company_id: user.company_id });
-        companyUsers = await usersAPI.getUsers({ company_id: user.company_id });
-      }
-      else {
-        // 🔵 Normal User: only their own tasks
-        freshTasks = await tasksAPI.getMyTasks();
-      }
-
-      // 🛎 Notifications: everyone sees their own
-      const freshNotifications = await notificationsAPI.getNotifications();
-
-      // 📊 Stats based on role
-      const newStats: DashboardStats = {
-        totalCompanies: user?.role === "super_admin" ? companyList.length : 0,
-        totalUsers:
-          user?.role === "super_admin" ? companyUsers.length :
-          user?.role === "admin" ? companyUsers.length : 0,
-        totalTasks: freshTasks.length,
-        pendingTasks: freshTasks.filter(t => t.status === "pending" || t.status === "in_progress").length,
-        completedTasks: freshTasks.filter(t => t.status === "completed").length,
-        overdueTasks: freshTasks.filter(t => {
-          if (!t.due_date) return false;
-          const dueDate = new Date(t.due_date);
-          return dueDate < new Date() && t.status !== "completed";
-        }).length,
-        activeUsers: (user?.role === "super_admin" || user?.role === "admin")
-          ? companyUsers.filter(u => u.is_active).length
-          : 0,
-        inactiveUsers: (user?.role === "super_admin" || user?.role === "admin")
-          ? companyUsers.filter(u => !u.is_active).length
-          : 0
-      };
-      setStats(newStats);
-
-      // 📌 Recent Activities
-      if (user?.role === "super_admin") {
-        // Super admin sees everything’s activity
-        const activities: RecentActivity[] = [];
-
-        freshTasks.slice(0, 3).forEach(task => {
-          activities.push({
-            id: `task-${task.id}`,
-            type: "task_created",
-            message: `Task "${task.title}" created`,
-            timestamp: new Date(task.created_at),
-            user: task.assignee_name,
-          });
-        });
-
-        freshNotifications.slice(0, 3).forEach(notif => {
-          activities.push({
-            id: `notif-${notif.id}`,
-            type: "task_completed",
-            message: notif.message,
-            timestamp: new Date(notif.created_at),
-          });
-        });
-
-        setRecentActivities(
-          activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-        );
-      } else if (user?.role === "admin" || user?.role === "user") {
-        // Admin/User only see company-related or personal activities
-        const activities: RecentActivity[] = [];
-
-        freshTasks.slice(0, 3).forEach(task => {
-          activities.push({
-            id: `task-${task.id}`,
-            type: "task_created",
-            message: `Task "${task.title}" created`,
-            timestamp: new Date(task.created_at),
-            user: task.assignee_name,
-          });
-        });
-
-        freshNotifications.slice(0, 3).forEach(notif => {
-          activities.push({
-            id: `notif-${notif.id}`,
-            type: "task_completed",
-            message: notif.message,
-            timestamp: new Date(notif.created_at),
-          });
-        });
-
-        setRecentActivities(
-          activities.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-        );
-      }
-
-    } catch (err: any) {
-      console.error("Dashboard loading error:", err);
-      setError("Failed to load dashboard data. Please try refreshing.");
-    } finally {
       setLoading(false);
     }
-  };
-
-  if (location.pathname.includes("/dashboard")) {
-    loadDashboardData();
-
-    if (user?.role === "super_admin") {
-      loadCompanies();
-    }
-  }
-}, [user, location.pathname]);
-   // <-- correct dependency array
-
-
+  }, [user, location.pathname]);
 
   const handleUserAction = async (action: string, userId: number) => {
     try {
@@ -357,40 +481,6 @@ useEffect(() => {
     setShowCreateCompanyModal(false);
     loadCompanies();
   };
-
-  // Removed handleCompanyClick function
-  // const handleCompanyClick = (company: Company) => {
-  //   console.log("Company card clicked:", company);
-  //   setShowCompanyLoginModal(true);
-  //   setCompanyLoginData({ username: company.company_username || '', password: '' });
-  // };
-
-  // Removed handleCompanyLoginChange function
-  // const handleCompanyLoginChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  //   const { name, value } = e.target;
-  //   setCompanyLoginData(prev => ({ ...prev, [name]: value }));
-  //   setCompanyLoginError(null);
-  // };
-
-  // Removed handleCompanyLoginSubmit function
-  // const handleCompanyLoginSubmit = async (e: React.FormEvent) => {
-  //   e.preventDefault();
-  //   setCompanyLoginError(null);
-  //   setCompanyLoginLoading(true);
-
-  //   try {
-  //     console.log('Attempting company login via Dashboard.tsx with:', { username: companyLoginData.username, password: '***' });
-  //     await companyLogin(companyLoginData.username, companyLoginData.password);
-  //     console.log('Company login successful from Dashboard.tsx');
-  //     setShowCompanyLoginModal(false);
-  //   } catch (err: any) {
-  //     console.error('Company login failed from Dashboard.tsx:', err);
-  //     setCompanyLoginError(err.message || 'Invalid company username or password.');
-  //   } finally {
-  //     setCompanyLoginLoading(false);
-  //   }
-  // };
-
 
   if (loading) {
     return (
@@ -422,65 +512,85 @@ useEffect(() => {
   }
 
   const statCards = [
+    // Task-related stats for all roles
     {
       title: 'Total Tasks',
       value: stats.totalTasks,
       icon: CheckSquare,
       color: 'bg-blue-500',
-      show: user?.role === 'admin'|| user?.role === 'user',
+      show: true,
     },
     {
       title: 'Pending Tasks',
       value: stats.pendingTasks,
       icon: Clock,
       color: 'bg-yellow-500',
-      show: user?.role === 'admin'|| user?.role === 'user',
+      show: true,
+    },
+    {
+      title: 'In Progress Tasks',
+      value: stats.inProgressTasks,
+      icon: TrendingUp,
+      color: 'bg-orange-500',
+      show: true,
     },
     {
       title: 'Completed Tasks',
       value: stats.completedTasks,
-      icon: CheckSquare,
+      icon: CheckCircle,
       color: 'bg-green-500',
-      show: user?.role === 'admin'|| user?.role === 'user',
+      show: true,
     },
     {
       title: 'Overdue Tasks',
       value: stats.overdueTasks,
       icon: AlertTriangle,
       color: 'bg-red-500',
-      show: user?.role === 'admin'|| user?.role === 'user',
+      show: true,
     },
+    {
+      title: 'Upcoming Tasks',
+      value: stats.upcomingTasks,
+      icon: Calendar,
+      color: 'bg-purple-500',
+      show: true,
+    },
+    
+    // User-related stats for admin, company, and super_admin roles
     {
       title: 'Total Users',
       value: stats.totalUsers,
       icon: Users,
-      color: 'bg-purple-500',
-      show: user?.role === 'admin' || user?.role === 'company', // ✅ FIXED: Added 'company' role
+      color: 'bg-indigo-500',
+      show: user?.role === 'admin' || user?.role === 'company' || user?.role === 'super_admin',
     },
     {
       title: 'Active Users',
       value: stats.activeUsers,
       icon: UserCheck,
       color: 'bg-green-600',
-      show: user?.role === 'admin' || user?.role === 'company', // ✅ FIXED: Added 'company' role
+      show: user?.role === 'admin' || user?.role === 'company' || user?.role === 'super_admin',
     },
     {
       title: 'Inactive Users',
       value: stats.inactiveUsers,
       icon: UserX,
       color: 'bg-red-600',
-      show: user?.role === 'admin' || user?.role === 'company', // ✅ FIXED: Added 'inactive users' for admin/company roles
+      show: user?.role === 'admin' || user?.role === 'company' || user?.role === 'super_admin',
     },
+    
+    // Company-related stats for super_admin only
     {
       title: 'Total Companies',
       value: stats.totalCompanies,
       icon: Building,
-      color: 'bg-indigo-500',
+      color: 'bg-cyan-500',
       show: user?.role === 'super_admin',
     },
   ].filter(card => card.show);
 
-  const shouldShowUserSection = false; // ✅ FIXED: Removed the team member section
+  // Show team member section for admin and company roles
+  const shouldShowUserSection = (user?.role === 'admin' || user?.role === 'company') && users.length > 0;
 
   return (
     <div className="space-y-6">
@@ -492,14 +602,17 @@ useEffect(() => {
               Welcome back, {user?.username}!
             </h1>
             <p className="text-gray-600 mt-1">
-              Here's what's happening with your workspace today.
+              {user?.role === 'super_admin' && 'Managing the entire platform and all companies.'}
+              {user?.role === 'company' && 'Managing your company and all its tasks.'}
+              {user?.role === 'admin' && 'Managing users and tasks within your organization.'}
+              {user?.role === 'user' && "Here's what's happening with your tasks today."}
             </p>
           </div>
           <div className="flex items-center space-x-2">
             <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 capitalize">
               {user?.role?.replace('_', ' ')}
             </span>
-            {user?.role === 'admin' && user?.company?.name && (
+            {(user?.role === 'admin' || user?.role === 'company') && user?.company?.name && (
               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-200 text-gray-800">
                 Company: {user.company.name}
               </span>
@@ -573,30 +686,16 @@ useEffect(() => {
               </button>
 
               {user?.role === 'super_admin' && (
-                <>
-                  <button
-                    onClick={() => {
-                      console.log("Create New Company button clicked from Quick Actions!");
-                      setShowCreateCompanyModal(true);
-                    }}
-                    className="w-full text-left px-4 py-3 bg-green-50 hover:bg-green-100 rounded-lg transition-colors flex items-center"
-                  >
-                    <Building className="w-5 h-5 text-green-600 mr-3" />
-                    <span className="text-green-900 font-medium">Create New Company</span>
-                  </button>
-                  {/* Removed the "Login as Company" button */}
-                  {/* <button
-                    onClick={() => {
-                      console.log("Login as Company button clicked!");
-                      setShowCompanyLoginModal(true);
-                      setCompanyLoginData({ username: '', password: '' });
-                    }}
-                    className="w-full text-left px-4 py-3 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors flex items-center"
-                  >
-                    <LogIn className="w-5 h-5 text-purple-600 mr-3" />
-                    <span className="text-purple-900 font-medium">Login as Company</span>
-                  </button> */}
-                </>
+                <button
+                  onClick={() => {
+                    console.log("Create New Company button clicked from Quick Actions!");
+                    setShowCreateCompanyModal(true);
+                  }}
+                  className="w-full text-left px-4 py-3 bg-green-50 hover:bg-green-100 rounded-lg transition-colors flex items-center"
+                >
+                  <Building className="w-5 h-5 text-green-600 mr-3" />
+                  <span className="text-green-900 font-medium">Create New Company</span>
+                </button>
               )}
 
               <button className="w-full text-left px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
@@ -657,9 +756,7 @@ useEffect(() => {
                 {companies.map((company) => (
                   <div
                     key={company.id}
-                    className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
-                    // Removed onClick handler from company cards
-                    // onClick={() => handleCompanyClick(company)}
+                    className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-3">
@@ -673,8 +770,7 @@ useEffect(() => {
                           )}
                           {company.company_username && (
                             <p className="text-xs text-gray-500 flex items-center mt-1">
-                              {/* Changed to just display username, not suggest login interaction from here */}
-                              Login Username: {company.company_username}
+                              Username: {company.company_username}
                             </p>
                           )}
                           <p className="text-xs text-gray-500 mt-2">
@@ -698,7 +794,7 @@ useEffect(() => {
         </div>
       )}
 
-      {/* User Management Section - Only for 'Admin' or when Super Admin has logged in as a company admin*/}
+      {/* User Management Section - Only for Admin and Company roles */}
       {shouldShowUserSection && (
         <div className="bg-white rounded-lg shadow">
           <div className="p-6 border-b border-gray-200">
@@ -728,13 +824,6 @@ useEffect(() => {
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                 <span className="ml-3 text-gray-600">Loading users...</span>
               </div>
-            ) : users.length === 0 ? (
-              <div className="text-center py-8">
-                <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">
-                  No users found in your company.
-                </p>
-              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -749,6 +838,7 @@ useEffect(() => {
                   </thead>
                   <tbody>
                     {users
+                      .filter(u => user?.role === 'super_admin' || u.company?.id === user?.company_id)
                       .slice(0, 10)
                       .map((dashboardUser) => (
                         <tr key={dashboardUser.id} className="border-b border-gray-100 hover:bg-gray-50">
@@ -824,10 +914,10 @@ useEffect(() => {
                       ))}
                   </tbody>
                 </table>
-                {users.filter(u => u.company?.id === user?.company_id).length > 10 && (
+                {users.filter(u => user?.role === 'super_admin' || u.company?.id === user?.company_id).length > 10 && (
                   <div className="mt-4 text-center">
                     <button className="px-4 py-2 text-sm text-blue-600 hover:text-blue-800 font-medium">
-                      View all {users.filter(u => u.company?.id === user?.company_id).length} users →
+                      View all users →
                     </button>
                   </div>
                 )}
@@ -848,64 +938,6 @@ useEffect(() => {
           onCancel={() => setShowCreateCompanyModal(false)}
         />
       </Modal>
-
-      {/* Removed Company Login Modal */}
-      {/* <Modal
-        isOpen={showCompanyLoginModal}
-        title="Login to Company Dashboard"
-        onClose={() => setShowCompanyLoginModal(false)}
-        maxWidth="sm"
-      >
-        <form onSubmit={handleCompanyLoginSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="company_username_login" className="block text-sm font-medium text-gray-700">Company Username:</label>
-            <input
-              type="text"
-              id="company_username_login"
-              name="username"
-              value={companyLoginData.username}
-              onChange={handleCompanyLoginChange}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="company_password_login" className="block text-sm font-medium text-gray-700">Company Password:</label>
-            <input
-              type="password"
-              id="company_password_login"
-              name="password"
-              value={companyLoginData.password}
-              onChange={handleCompanyLoginChange}
-              className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
-              required
-            />
-          </div>
-          {companyLoginError && (
-            <div className="text-red-600 text-sm p-3 bg-red-50 border border-red-400 rounded-md" role="alert">
-              {companyLoginError}
-            </div>
-          )}
-          <div className="flex justify-end space-x-3 mt-6">
-            <button
-              type="button"
-              onClick={() => setShowCompanyLoginModal(false)}
-              disabled={companyLoginLoading}
-              className="px-5 py-2 bg-gray-300 text-gray-800 font-medium rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={companyLoginLoading || !companyLoginData.username || !companyLoginData.password}
-              className="px-5 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {companyLoginLoading ? 'Logging in...' : 'Login'}
-            </button>
-          </div>
-        </form>
-      </Modal> */}
-
     </div>
   );
 };

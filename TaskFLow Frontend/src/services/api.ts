@@ -631,5 +631,45 @@ export const notificationsAPI = {
     }
   },
 };
+// ==== Analytics API (NEW) ====
+export interface AnalyticsResponse {
+  scope: "global" | "company" | "user";
+  role: string;
+  user_id?: number;
+  company_id?: number;
+  totals: {
+    total_companies?: number;
+    total_users?: number;
+    active_users?: number;
+    inactive_users?: number;
+    total_tasks: number;
+    pending_tasks?: number;
+    in_progress_tasks?: number;
+    completed_tasks?: number;
+    overdue_tasks?: number;
+    upcoming_tasks?: number;
+  };
+  priority_summary: Record<string, number>;
+  average_completion_time_hours: number;
+  recent_activity: {
+    tasks_created_last_7_days: number;
+    tasks_completed_last_7_days: number;
+  };
+}
+
+export const analyticsAPI = {
+  getDashboardAnalytics: async (): Promise<AnalyticsResponse> => {
+    console.log('[API] Getting dashboard analytics...');
+    
+    try {
+      const response = await api.get('/analytics');
+      console.log('[API] Analytics response received:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('[API] Failed to get analytics:', error.response?.data || error.message);
+      throw error;
+    }
+  },
+};
 
 export default api;

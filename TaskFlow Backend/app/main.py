@@ -1,6 +1,7 @@
 # app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.routers.analytics_router import router as analytics_router
 from app.database import engine, Base
 from app.routers import (
     auth_router,
@@ -44,7 +45,8 @@ app.include_router(notifications_router, tags=[
 app.include_router(profiles_router, tags=["Profiles"], prefix="/api/v1")
 app.include_router(task_analytics, tags=[
                    "analytics"], prefix="/api/v1/analytics")
-
+app.include_router(analytics_router, prefix="/api/v1")
+app.include_router(analytics_router) 
 # ✅ Health check & root routes
 
 
