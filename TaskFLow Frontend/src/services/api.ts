@@ -9,11 +9,6 @@ const api = axios.create({
   timeout: 10000, // 10 second timeout
 });
 
-// Static SuperAdmin credentials matching backend
-export const STATIC_SUPERADMIN_CREDENTIALS = {
-  email: import.meta.env.VITE_SUPERADMIN_EMAIL || '',
-  password: import.meta.env.VITE_SUPERADMIN_PASSWORD || ''
-};
 
 
 // Add request interceptor to include auth token
@@ -79,9 +74,6 @@ export const authAPI = {
     console.log('[API] Regular login attempt for:', email);
     
     // Log if this is a superadmin login attempt
-    if (email === STATIC_SUPERADMIN_CREDENTIALS.email) {
-      console.log('[API] Static SuperAdmin login attempt detected');
-    }
     
     try {
       const formData = new FormData();
@@ -94,10 +86,7 @@ export const authAPI = {
         },
       });
       
-      console.log('[API] Regular login successful for:', email, {
-        userRole: response.data.user?.role,
-        isStaticSuperAdmin: response.data.user?.id === -999
-      });
+      
       
       // Validate response structure
       if (!response.data.access_token || !response.data.user) {
@@ -185,9 +174,7 @@ export const authAPI = {
   /**
    * Helper function to check if current user is the static superadmin
    */
-  isStaticSuperAdmin: (user: any) => {
-    return user && user.id === -999 && user.email === STATIC_SUPERADMIN_CREDENTIALS.email;
-  },
+ 
 };
 
 // Users API
@@ -642,6 +629,7 @@ export interface AnalyticsResponse {
     total_users?: number;
     active_users?: number;
     inactive_users?: number;
+
     total_tasks: number;
     pending_tasks?: number;
     in_progress_tasks?: number;
@@ -659,16 +647,8 @@ export interface AnalyticsResponse {
 
 export const analyticsAPI = {
   getDashboardAnalytics: async (): Promise<AnalyticsResponse> => {
-    console.log('[API] Getting dashboard analytics...');
-    
-    try {
-      const response = await api.get('/analytics');
-      console.log('[API] Analytics response received:', response.data);
-      return response.data;
-    } catch (error: any) {
-      console.error('[API] Failed to get analytics:', error.response?.data || error.message);
-      throw error;
-    }
+    const response = await api.get('/analytics');
+    return response.data;
   },
 };
 

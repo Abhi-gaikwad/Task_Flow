@@ -1,4 +1,3 @@
-# app/routers/auth_router.py
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -9,7 +8,7 @@ from app.auth import (
     create_access_token,
     get_current_user
 )
-from app.models import User
+from app.models import User, Company
 from app.schemas import UserResponse
 from pydantic import BaseModel
 
@@ -19,7 +18,7 @@ router = APIRouter()
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str
-    user: UserResponse
+    user: dict   # we allow dict since company response is not exactly UserResponse
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -27,82 +26,143 @@ async def unified_login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    """
-    Unified login endpoint:
-    1. Try company authentication first.
-    2. If company authentication fails with 401, try user authentication.
-    """
-    print(f"[DEBUG] Unified login attempt for: {form_data.username}")
+    username = form_data.username
+    password = form_data.password
+    print(f"[DEBUG ROUTER] === UNIFIED LOGIN STARTED ===")
+    print(f"[DEBUG ROUTER] Username: '{username}'")
+    print(f"[DEBUG ROUTER] Password provided: {bool(password)}")
+    print(f"[DEBUG ROUTER] Password length: {len(password) if password else 0}")
 
-    try:
-        # First try company authentication
+    # Try user login FIRST (includes SuperAdmin, Admin, normal users)
+    print(f"[DEBUG ROUTER] Attempting user authentication...")
+    user = authenticate_user(db, username, password)
+    
+    if user:
+        print(f"[DEBUG ROUTER] ✅ User authentication SUCCESS")
+        print(f"[DEBUG ROUTER] User details - ID: {user.id}, Email: {user.email}, Role: {user.role}")
+        
         try:
-            company_user = authenticate_company(
-                db, form_data.username, form_data.password)
-            if company_user:
-                print(
-                    f"[DEBUG] Company login successful: {company_user.username}")
-                access_token = create_access_token(company_user.id)
-                user_response = UserResponse.model_validate(company_user)
-                return LoginResponse(
-                    access_token=access_token,
-                    token_type="bearer",
-                    user=user_response
-                )
-        except HTTPException as he:
-            if he.status_code != status.HTTP_401_UNAUTHORIZED:
-                print(
-                    f"[DEBUG] Company login failed with non-401 error: {he.detail}")
-                raise
-            print("[DEBUG] Company login failed with 401, trying user login...")
-
-        # If company login fails with 401, try user authentication
-        user = authenticate_user(db, form_data.username, form_data.password)
-        if not user:
-            print(f"[DEBUG] User login failed for: {form_data.username}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect username/email or password",
-                headers={"WWW-Authenticate": "Bearer"},
+            access_token = create_access_token(user.id, entity_type="user")
+            print(f"[DEBUG ROUTER] Access token created successfully")
+            
+            user_response = UserResponse.model_validate(user)
+            print(f"[DEBUG ROUTER] UserResponse validation successful")
+            
+            result = LoginResponse(
+                access_token=access_token,
+                token_type="bearer",
+                user=user_response.model_dump()
             )
+            print(f"[DEBUG ROUTER] === UNIFIED LOGIN COMPLETED SUCCESSFULLY ===")
+            return result
+            
+        except Exception as e:
+            print(f"[DEBUG ROUTER] ❌ Error creating response: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error creating login response: {str(e)}"
+            )
+    else:
+        print(f"[DEBUG ROUTER] ❌ User authentication FAILED")
 
-        print(f"[DEBUG] User login successful: {user.username}")
-        access_token = create_access_token(user.id)
-        user_response = UserResponse.model_validate(user)
-        return LoginResponse(
-            access_token=access_token,
-            token_type="bearer",
-            user=user_response
-        )
+    # Fallback to company login if user login fails
+    print(f"[DEBUG ROUTER] Attempting company authentication...")
+    company = authenticate_company(db, username, password)
+    
+    if company:
+        print(f"[DEBUG ROUTER] ✅ Company authentication SUCCESS")
+        print(f"[DEBUG ROUTER] Company details - ID: {company.id}, Username: {company.company_username}")
+        
+        try:
+            access_token = create_access_token(company.id, entity_type="company")
+            print(f"[DEBUG ROUTER] Company access token created successfully")
+            
+            result = LoginResponse(
+                access_token=access_token,
+                token_type="bearer",
+                user={
+                    "id": company.id,
+                    "email": company.company_email,
+                    "username": company.company_username,
+                    "role": "COMPANY",
+                    "company_id": company.id,
+                    "is_active": company.is_active,
+                    "can_assign_tasks": True
+                }
+            )
+            print(f"[DEBUG ROUTER] === UNIFIED LOGIN COMPLETED SUCCESSFULLY (COMPANY) ===")
+            return result
+            
+        except Exception as e:
+            print(f"[DEBUG ROUTER] ❌ Error creating company response: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error creating company login response: {str(e)}"
+            )
+    else:
+        print(f"[DEBUG ROUTER] ❌ Company authentication FAILED")
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(
-            f"[DEBUG] Unexpected error during unified login: {type(e).__name__}: {str(e)}")
-        import traceback
-        print(traceback.format_exc())
+    # Both authentications failed
+    print(f"[DEBUG ROUTER] ❌❌ ALL AUTHENTICATION METHODS FAILED ❌❌")
+    print(f"[DEBUG ROUTER] === UNIFIED LOGIN FAILED ===")
+    
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Incorrect username/email or password",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+@router.post("/company-login", response_model=LoginResponse)
+async def company_login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+    """Dedicated company login endpoint (if needed for direct company access)"""
+    username = form_data.username
+    password = form_data.password
+    print(f"[DEBUG ROUTER] === COMPANY LOGIN STARTED ===")
+    print(f"[DEBUG ROUTER] Company username: '{username}'")
+    print(f"[DEBUG ROUTER] Password provided: {bool(password)}")
+
+    company = authenticate_company(db, username, password)
+    if not company:
+        print(f"[DEBUG ROUTER] ❌ Company login failed for: {username}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Login failed due to an internal error"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect company username or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
+
+    print(f"[DEBUG ROUTER] ✅ Company login successful: {company.company_username}")
+    access_token = create_access_token(company.id, entity_type="company")
+    
+    result = LoginResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user={
+            "id": company.id,
+            "email": company.company_email,
+            "username": company.company_username,
+            "role": "COMPANY",
+            "company_id": company.id,
+            "is_active": company.is_active,
+            "can_assign_tasks": True
+        }
+    )
+    print(f"[DEBUG ROUTER] === COMPANY LOGIN COMPLETED SUCCESSFULLY ===")
+    return result
 
 
 @router.get("/users/me", response_model=UserResponse)
 async def get_current_user_profile(
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Get current authenticated user's profile
-    """
-    print(
-        f"[DEBUG] Getting current user profile for ID: {current_user.id}, Role: {current_user.role}")
+    print(f"[DEBUG ROUTER] Getting current user profile for ID: {current_user.id}, Role: {current_user.role}")
     try:
-        user_response = UserResponse.model_validate(current_user)
-        print(f"[DEBUG] Current user profile response created successfully")
-        return user_response
+        return UserResponse.model_validate(current_user)
     except Exception as e:
-        print(f"[DEBUG] Error creating current user response: {e}")
+        print(f"[DEBUG ROUTER] ❌ Error validating user response: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error getting user profile: {str(e)}"

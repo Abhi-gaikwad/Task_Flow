@@ -29,6 +29,7 @@ import {
 interface DashboardStats {
   totalUsers: number;
   totalCompanies: number;
+  activeCompanies?: number;
   totalTasks: number;
   pendingTasks: number;
   inProgressTasks: number;
@@ -37,6 +38,9 @@ interface DashboardStats {
   upcomingTasks: number;
   activeUsers: number;
   inactiveUsers: number;
+  assignedToMe?: UserTaskStats;
+  assignedByMe?: UserTaskStats;
+  canCreateTasks?: boolean;
 }
 
 interface RecentActivity {
@@ -173,6 +177,9 @@ export const Dashboard: React.FC = () => {
           const totals = analyticsData.totals || {};
           const recentActivity = analyticsData.recent_activity || {};
           const prioritySummary = analyticsData.priority_summary || {};
+          const canCreateTasks = analyticsData.can_create_tasks || false;
+          const assignedToMe = analyticsData.assigned_to_me;
+          const assignedByMe = analyticsData.assigned_by_me;
           
           const newStats: DashboardStats = {
             totalCompanies: totals.total_companies || 0,
@@ -185,7 +192,27 @@ export const Dashboard: React.FC = () => {
             completedTasks: totals.completed_tasks || 0,
             overdueTasks: totals.overdue_tasks || 0,
             upcomingTasks: totals.upcoming_tasks || 0,
+
+            // Fix typo and use the destructured variable
+            canCreateTasks: canCreateTasks,
+            assignedToMe: assignedToMe ? {
+              totalTasks: assignedToMe.total_tasks || 0,
+              pendingTasks: assignedToMe.pending_tasks || 0,
+              inProgressTasks: assignedToMe.in_progress_tasks || 0,
+              completedTasks: assignedToMe.completed_tasks || 0,
+              overdueTasks: assignedToMe.overdue_tasks || 0,
+              upcomingTasks: assignedToMe.upcoming_tasks || 0,
+            } : undefined,
+            assignedByMe: assignedByMe ? {
+              totalTasks: assignedByMe.total_tasks || 0,
+              pendingTasks: assignedByMe.pending_tasks || 0,
+              inProgressTasks: assignedByMe.in_progress_tasks || 0,
+              completedTasks: assignedByMe.completed_tasks || 0,
+              overdueTasks: assignedByMe.overdue_tasks || 0,
+              upcomingTasks: assignedByMe.upcoming_tasks || 0,
+            } : undefined,
           };
+          
 
           console.log('[Dashboard] Setting stats from analytics:', newStats);
           setStats(newStats);
@@ -512,87 +539,130 @@ export const Dashboard: React.FC = () => {
   }
 
   const statCards = [
-    // Task-related stats for all roles
-    {
-      title: 'Total Tasks',
-      value: stats.totalTasks,
-      icon: CheckSquare,
-      color: 'bg-blue-500',
-      show: true,
-    },
-    {
-      title: 'Pending Tasks',
-      value: stats.pendingTasks,
-      icon: Clock,
-      color: 'bg-yellow-500',
-      show: true,
-    },
-    {
-      title: 'In Progress Tasks',
-      value: stats.inProgressTasks,
-      icon: TrendingUp,
-      color: 'bg-orange-500',
-      show: true,
-    },
-    {
-      title: 'Completed Tasks',
-      value: stats.completedTasks,
-      icon: CheckCircle,
-      color: 'bg-green-500',
-      show: true,
-    },
-    {
-      title: 'Overdue Tasks',
-      value: stats.overdueTasks,
-      icon: AlertTriangle,
-      color: 'bg-red-500',
-      show: true,
-    },
-    {
-      title: 'Upcoming Tasks',
-      value: stats.upcomingTasks,
-      icon: Calendar,
-      color: 'bg-purple-500',
-      show: true,
-    },
-    
-    // User-related stats for admin, company, and super_admin roles
-    {
-      title: 'Total Users',
-      value: stats.totalUsers,
-      icon: Users,
-      color: 'bg-indigo-500',
-      show: user?.role === 'admin' || user?.role === 'company' || user?.role === 'super_admin',
-    },
-    {
-      title: 'Active Users',
-      value: stats.activeUsers,
-      icon: UserCheck,
-      color: 'bg-green-600',
-      show: user?.role === 'admin' || user?.role === 'company' || user?.role === 'super_admin',
-    },
-    {
-      title: 'Inactive Users',
-      value: stats.inactiveUsers,
-      icon: UserX,
-      color: 'bg-red-600',
-      show: user?.role === 'admin' || user?.role === 'company' || user?.role === 'super_admin',
-    },
-    
-    // Company-related stats for super_admin only
-    {
-      title: 'Total Companies',
-      value: stats.totalCompanies,
-      icon: Building,
-      color: 'bg-cyan-500',
-      show: user?.role === 'super_admin',
-    },
-  ].filter(card => card.show);
+  // Company stats for super admin
+  {
+    title: 'Total Companies',
+    value: stats.totalCompanies,
+    icon: Building,
+    color: 'bg-cyan-500',
+    show: user?.role === 'super_admin',
+  },
+  {
+    title: 'Active Companies',
+    value: stats.activeCompanies || 0,
+    icon: Building,
+    color: 'bg-emerald-500',
+    show: user?.role === 'super_admin',
+  },
+  
+  // Regular task stats for non-super-admin without create permission
+  {
+    title: 'My Tasks',
+    value: stats.totalTasks,
+    icon: CheckSquare,
+    color: 'bg-blue-500',
+    show: user?.role !== 'super_admin' && !stats.canCreateTasks,
+  },
+  {
+    title: 'Pending',
+    value: stats.pendingTasks,
+    icon: Clock,
+    color: 'bg-yellow-500',
+    show: user?.role !== 'super_admin' && !stats.canCreateTasks,
+  },
+  {
+    title: 'In Progress',
+    value: stats.inProgressTasks,
+    icon: TrendingUp,
+    color: 'bg-orange-500',
+    show: user?.role !== 'super_admin' && !stats.canCreateTasks,
+  },
+  {
+    title: 'Completed',
+    value: stats.completedTasks,
+    icon: CheckCircle,
+    color: 'bg-green-500',
+    show: user?.role !== 'super_admin' && !stats.canCreateTasks,
+  },
+  
+  // Enhanced stats for users with create permission
+  {
+    title: 'Assigned to Me',
+    value: stats.assignedToMe?.totalTasks || 0,
+    icon: CheckSquare,
+    color: 'bg-blue-500',
+    show: user?.role !== 'super_admin' && stats.canCreateTasks,
+  },
+  {
+    title: 'Assigned by Me',
+    value: stats.assignedByMe?.totalTasks || 0,
+    icon: Users,
+    color: 'bg-purple-500',
+    show: user?.role !== 'super_admin' && stats.canCreateTasks,
+  },
+  {
+    title: 'My Pending',
+    value: stats.assignedToMe?.pendingTasks || 0,
+    icon: Clock,
+    color: 'bg-yellow-500',
+    show: user?.role !== 'super_admin' && stats.canCreateTasks,
+  },
+  {
+    title: 'Delegated Pending',
+    value: stats.assignedByMe?.pendingTasks || 0,
+    icon: AlertTriangle,
+    color: 'bg-orange-500',
+    show: user?.role !== 'super_admin' && stats.canCreateTasks,
+  },
+  {
+    title: 'My Completed',
+    value: stats.assignedToMe?.completedTasks || 0,
+    icon: CheckCircle,
+    color: 'bg-green-500',
+    show: user?.role !== 'super_admin' && stats.canCreateTasks,
+  },
+  {
+    title: 'Delegated Completed',
+    value: stats.assignedByMe?.completedTasks || 0,
+    icon: CheckCircle,
+    color: 'bg-emerald-500',
+    show: user?.role !== 'super_admin' && stats.canCreateTasks,
+  },
+  
+  // Common overdue/upcoming for users
+  {
+    title: 'Overdue Tasks',
+    value: user?.role !== 'super_admin' && stats.canCreateTasks 
+      ? (stats.assignedToMe?.overdueTasks || 0) 
+      : (stats.overdueTasks || 0),
+    icon: AlertTriangle,
+    color: 'bg-red-500',
+    show: user?.role !== 'super_admin',
+  },
+  {
+    title: 'Upcoming Tasks',
+    value: user?.role !== 'super_admin' && stats.canCreateTasks 
+      ? (stats.assignedToMe?.upcomingTasks || 0) 
+      : (stats.upcomingTasks || 0),
+    icon: Calendar,
+    color: 'bg-purple-500',
+    show: user?.role !== 'super_admin',
+  },
+  
+  // User/company management stats
+  {
+    title: 'Total Users',
+    value: stats.totalUsers,
+   icon: Users,
+    color: 'bg-indigo-500',
+    show: user?.role === 'admin' || user?.role === 'company',
+  },
+]; // End of statCards array
 
-  // Show team member section for admin and company roles
-  const shouldShowUserSection = (user?.role === 'admin' || user?.role === 'company') && users.length > 0;
+// Show team member section for admin and company roles
+const shouldShowUserSection = (user?.role === 'admin' || user?.role === 'company') && users.length > 0;
 
-  return (
+return (
     <div className="space-y-6">
       {/* Welcome Header */}
       <div className="bg-white rounded-lg shadow p-6">

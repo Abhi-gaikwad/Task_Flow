@@ -34,10 +34,11 @@ interface AuthState {
   token: string | null;
 }
 
-// Combining the context types from both snippets
+// Enhanced context types with new smart login method
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   companyLogin: (companyUsername: string, companyPassword: string) => Promise<{ success: boolean; error?: string }>;
+  smartLogin: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   updateUser: (user: User) => void;
   refreshUser: () => Promise<void>;
@@ -180,6 +181,56 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  // NEW: Smart login that automatically tries both user and company authentication
+  const smartLogin = async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    setAuthState(prev => ({ ...prev, isLoading: true }));
+    
+    console.log('[AUTH] Smart login attempt for:', username);
+    
+    // First try unified login (handles users including SuperAdmin)
+    try {
+      console.log('[AUTH] Trying unified user login...');
+      const response = await authAPI.login(username, password);
+      console.log('[AUTH] Unified login successful, user role:', response.user?.role);
+      
+      commonLoginLogic(response.access_token, response.user);
+      await refreshUser();
+      return { success: true };
+    } catch (userError: any) {
+      console.log('[AUTH] Unified login failed, trying company login...', handleApiError(userError));
+      
+      // If unified login fails, try company-specific login
+      try {
+        const response = await authAPI.companyLogin(username, password);
+        if (!response.access_token || !response.user) {
+          throw new Error('Invalid response from server - missing token or user data');
+        }
+        console.log('[AUTH] Company login successful');
+        
+        commonLoginLogic(response.access_token, response.user);
+        await refreshUser();
+        return { success: true };
+      } catch (companyError: any) {
+        console.log('[AUTH] Both login attempts failed');
+        
+        // Return the most relevant error message
+        const userErrorMessage = handleApiError(userError);
+        const companyErrorMessage = handleApiError(companyError);
+        
+        // If user error suggests wrong credentials, use that. Otherwise, use a generic message.
+        const finalError = userErrorMessage.toLowerCase().includes('incorrect') || 
+                          userErrorMessage.toLowerCase().includes('password') ||
+                          userErrorMessage.toLowerCase().includes('username') ||
+                          userErrorMessage.toLowerCase().includes('email')
+                          ? userErrorMessage 
+                          : 'Invalid username/email or password';
+        
+        setAuthState(prev => ({ ...prev, isLoading: false }));
+        return { success: false, error: finalError };
+      }
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('auth');
     localStorage.removeItem('access_token');
@@ -266,6 +317,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     ...authState,
     login,
     companyLogin,
+    smartLogin, // NEW: Added smart login method
     logout,
     updateUser,
     refreshUser,
