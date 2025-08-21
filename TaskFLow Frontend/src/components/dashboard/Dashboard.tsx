@@ -14,6 +14,7 @@ import {
   CheckSquare,
   Clock,
   AlertTriangle,
+  UserPlus,
   TrendingUp,
   Bell,
   Calendar,
@@ -24,9 +25,19 @@ import {
   Mail,
   Plus,
   CheckCircle,
+  User, 
 } from 'lucide-react';
 
-interface DashboardStats {
+export interface UserTaskStats {
+  totalTasks: number;
+  pendingTasks: number;
+  inProgressTasks: number;
+  completedTasks: number;
+  overdueTasks: number;
+  upcomingTasks: number;
+}
+
+export interface DashboardStats {
   totalUsers: number;
   totalCompanies: number;
   activeCompanies?: number;
@@ -41,9 +52,12 @@ interface DashboardStats {
   assignedToMe?: UserTaskStats;
   assignedByMe?: UserTaskStats;
   canCreateTasks?: boolean;
+  // Additional user permission stats
+  delegatedPending?: number;
+  delegatedCompleted?: number;
 }
 
-interface RecentActivity {
+export interface RecentActivity {
   id: string;
   type: 'task_created' | 'task_completed' | 'user_added' | 'company_created';
   message: string;
@@ -51,7 +65,7 @@ interface RecentActivity {
   user?: string;
 }
 
-interface DashboardUser {
+export interface DashboardUser {
   id: number;
   username: string;
   email: string;
@@ -64,13 +78,63 @@ interface DashboardUser {
   };
 }
 
-interface Company {
+export interface Company {
   id: number;
   name: string;
   description?: string;
   is_active: boolean;
   created_at: string;
   company_username?: string;
+}
+
+// Analytics API response structure
+export interface AnalyticsResponse {
+  scope: 'global' | 'company' | 'user';
+  role: string;
+  company_id?: number;
+  company_name?: string;
+  user_id?: number;
+  can_create_tasks?: boolean;
+  totals: {
+    total_companies?: number;
+    active_companies?: number;
+    total_users?: number;
+    active_users?: number;
+    inactive_users?: number;
+    total_tasks: number;
+    pending_tasks: number;
+    in_progress_tasks: number;
+    completed_tasks: number;
+    overdue_tasks: number;
+    upcoming_tasks?: number;
+  };
+  assigned_to_me?: {
+    total_tasks: number;
+    pending_tasks: number;
+    in_progress_tasks: number;
+    completed_tasks: number;
+    overdue_tasks: number;
+    upcoming_tasks: number;
+  };
+  assigned_by_me?: {
+    total_tasks: number;
+    pending_tasks: number;
+    in_progress_tasks: number;
+    completed_tasks: number;
+    overdue_tasks: number;
+    upcoming_tasks: number;
+  };
+  delegated_pending?: number;
+  delegated_completed?: number;
+  priority_summary: Record<string, number>;
+  average_completion_time_hours: number;
+  recent_activity: {
+    tasks_created_last_7_days?: number;
+    tasks_completed_last_7_days?: number;
+    tasks_assigned_to_me_last_7_days?: number;
+    tasks_created_by_me_last_7_days?: number;
+    companies_managed?: number;
+  };
 }
 
 export const Dashboard: React.FC = () => {
@@ -149,78 +213,165 @@ export const Dashboard: React.FC = () => {
 
   const location = useLocation();
 
-  useEffect(() => {
-    const loadDashboardData = async () => {
-      if (!user) {
-        console.log('[Dashboard] No user found, skipping load');
-        setLoading(false);
-        return;
-      }
+useEffect(() => {
+  const loadDashboardData = async () => {
+    if (!user) {
+      console.log('[Dashboard] No user found, skipping load');
+      setLoading(false);
+      return;
+    }
 
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('[Dashboard] Starting to load dashboard data for user:', {
+        role: user.role,
+        id: user.id,
+        email: user.email,
+        company_id: user.company_id
+      });
+
+      // Try analytics API first
       try {
-        setLoading(true);
-        setError(null);
-        console.log('[Dashboard] Starting to load dashboard data for user:', {
-          role: user.role,
-          id: user.id,
-          email: user.email,
-          company_id: user.company_id
-        });
+        console.log('[Dashboard] Attempting analytics API call...');
+        const analyticsData = await analyticsAPI.getDashboardAnalytics();
+        console.log('[Dashboard] Analytics API success! Data received:', analyticsData);
 
-        // Try analytics API first
-        try {
-          console.log('[Dashboard] Attempting analytics API call...');
-          const analyticsData = await analyticsAPI.getDashboardAnalytics();
-          console.log('[Dashboard] Analytics API success! Data received:', analyticsData);
+        // Extract data from the response structure based on role
+        const totals = analyticsData.totals || {};
+        const recentActivity = analyticsData.recent_activity || {};
+        const prioritySummary = analyticsData.priority_summary || {};
+        const canCreateTasks = analyticsData.can_create_tasks || false;
+        const assignedToMe = analyticsData.assigned_to_me;
+        const assignedByMe = analyticsData.assigned_by_me;
+        
+        let newStats: DashboardStats = {
+          // Initialize all required stats with defaults
+          totalUsers: 0,
+          totalCompanies: 0,
+          activeCompanies: 0,
+          totalTasks: 0,
+          pendingTasks: 0,
+          inProgressTasks: 0,
+          completedTasks: 0,
+          overdueTasks: 0,
+          upcomingTasks: 0,
+          activeUsers: 0,
+          inactiveUsers: 0,
+          canCreateTasks: canCreateTasks,
+        };
 
-          // Extract data from the corrected response structure
-          const totals = analyticsData.totals || {};
-          const recentActivity = analyticsData.recent_activity || {};
-          const prioritySummary = analyticsData.priority_summary || {};
-          const canCreateTasks = analyticsData.can_create_tasks || false;
-          const assignedToMe = analyticsData.assigned_to_me;
-          const assignedByMe = analyticsData.assigned_by_me;
-          
-          const newStats: DashboardStats = {
-            totalCompanies: totals.total_companies || 0,
-            totalUsers: totals.total_users || 0,
-            activeUsers: totals.active_users || 0,
-            inactiveUsers: totals.inactive_users || 0,
-            totalTasks: totals.total_tasks || 0,
-            pendingTasks: totals.pending_tasks || 0,
-            inProgressTasks: totals.in_progress_tasks || 0,
-            completedTasks: totals.completed_tasks || 0,
-            overdueTasks: totals.overdue_tasks || 0,
-            upcomingTasks: totals.upcoming_tasks || 0,
+        // Role-specific stat mapping
+        switch (user.role) {
+          case 'super_admin':
+            newStats = {
+              ...newStats,
+              totalCompanies: totals.total_companies || 0,
+              activeCompanies: totals.active_companies || 0,
+            };
+            break;
 
-            // Fix typo and use the destructured variable
-            canCreateTasks: canCreateTasks,
-            assignedToMe: assignedToMe ? {
-              totalTasks: assignedToMe.total_tasks || 0,
-              pendingTasks: assignedToMe.pending_tasks || 0,
-              inProgressTasks: assignedToMe.in_progress_tasks || 0,
-              completedTasks: assignedToMe.completed_tasks || 0,
-              overdueTasks: assignedToMe.overdue_tasks || 0,
-              upcomingTasks: assignedToMe.upcoming_tasks || 0,
-            } : undefined,
-            assignedByMe: assignedByMe ? {
-              totalTasks: assignedByMe.total_tasks || 0,
-              pendingTasks: assignedByMe.pending_tasks || 0,
-              inProgressTasks: assignedByMe.in_progress_tasks || 0,
-              completedTasks: assignedByMe.completed_tasks || 0,
-              overdueTasks: assignedByMe.overdue_tasks || 0,
-              upcomingTasks: assignedByMe.upcoming_tasks || 0,
-            } : undefined,
-          };
-          
+          case 'company':
+            newStats = {
+              ...newStats,
+              totalUsers: totals.total_users || 0,
+              activeUsers: totals.active_users || 0,
+              inactiveUsers: totals.inactive_users || 0,
+              totalTasks: totals.total_tasks || 0,
+              pendingTasks: totals.pending_tasks || 0,
+              inProgressTasks: totals.in_progress_tasks || 0,
+              completedTasks: totals.completed_tasks || 0,
+              overdueTasks: totals.overdue_tasks || 0,
+              upcomingTasks: totals.upcoming_tasks || 0,
+            };
+            break;
 
-          console.log('[Dashboard] Setting stats from analytics:', newStats);
-          setStats(newStats);
+          case 'admin':
+            newStats = {
+              ...newStats,
+              totalUsers: totals.total_users || 0,
+              activeUsers: totals.active_users || 0,
+              inactiveUsers: totals.inactive_users || 0,
+              totalTasks: totals.total_tasks || 0,
+              pendingTasks: totals.pending_tasks || 0,
+              inProgressTasks: totals.in_progress_tasks || 0,
+              completedTasks: totals.completed_tasks || 0,
+              overdueTasks: totals.overdue_tasks || 0,
+              upcomingTasks: totals.upcoming_tasks || 0,
+              assignedToMe: assignedToMe ? {
+                totalTasks: assignedToMe.total_tasks || 0,
+                pendingTasks: assignedToMe.pending_tasks || 0,
+                inProgressTasks: assignedToMe.in_progress_tasks || 0,
+                completedTasks: assignedToMe.completed_tasks || 0,
+                overdueTasks: assignedToMe.overdue_tasks || 0,
+                upcomingTasks: assignedToMe.upcoming_tasks || 0,
+              } : undefined,
+              assignedByMe: assignedByMe ? {
+                totalTasks: assignedByMe.total_tasks || 0,
+                pendingTasks: assignedByMe.pending_tasks || 0,
+                inProgressTasks: assignedByMe.in_progress_tasks || 0,
+                completedTasks: assignedByMe.completed_tasks || 0,
+                overdueTasks: assignedByMe.overdue_tasks || 0,
+                upcomingTasks: assignedByMe.upcoming_tasks || 0,
+              } : undefined,
+            };
+            break;
 
-          // Generate activities from analytics
-          const activities: RecentActivity[] = [];
-          
-          // Add recent activity
+          case 'user':
+          default:
+            newStats = {
+              ...newStats,
+              totalTasks: totals.total_tasks || 0,
+              pendingTasks: totals.pending_tasks || 0,
+              inProgressTasks: totals.in_progress_tasks || 0,
+              completedTasks: totals.completed_tasks || 0,
+              overdueTasks: totals.overdue_tasks || 0,
+              upcomingTasks: totals.upcoming_tasks || 0,
+              assignedToMe: assignedToMe ? {
+                totalTasks: assignedToMe.total_tasks || 0,
+                pendingTasks: assignedToMe.pending_tasks || 0,
+                inProgressTasks: assignedToMe.in_progress_tasks || 0,
+                completedTasks: assignedToMe.completed_tasks || 0,
+                overdueTasks: assignedToMe.overdue_tasks || 0,
+                upcomingTasks: assignedToMe.upcoming_tasks || 0,
+              } : undefined,
+            };
+
+            // Add create-task permission specific stats
+            if (canCreateTasks) {
+              newStats.assignedByMe = assignedByMe ? {
+                totalTasks: assignedByMe.total_tasks || 0,
+                pendingTasks: assignedByMe.pending_tasks || 0,
+                inProgressTasks: assignedByMe.in_progress_tasks || 0,
+                completedTasks: assignedByMe.completed_tasks || 0,
+                overdueTasks: assignedByMe.overdue_tasks || 0,
+                upcomingTasks: assignedByMe.upcoming_tasks || 0,
+              } : undefined;
+              
+              newStats.delegatedPending = analyticsData.delegated_pending || assignedByMe?.pending_tasks || 0;
+              newStats.delegatedCompleted = analyticsData.delegated_completed || assignedByMe?.completed_tasks || 0;
+            }
+            break;
+        }
+
+        console.log('[Dashboard] Setting stats from analytics:', newStats);
+        setStats(newStats);
+
+        // Generate activities from analytics
+        const activities: RecentActivity[] = [];
+        
+        // Role-specific activity generation
+        if (user.role === 'super_admin') {
+          if (newStats.totalCompanies > 0) {
+            activities.push({
+              id: "companies-managed",
+              type: "company_created",
+              message: `Managing ${newStats.totalCompanies} companies (${newStats.activeCompanies} active)`,
+              timestamp: new Date(),
+            });
+          }
+        } else {
+          // Add recent task activity for non-super-admin roles
           if (recentActivity.tasks_created_last_7_days > 0) {
             activities.push({
               id: "created-7d",
@@ -251,17 +402,8 @@ export const Dashboard: React.FC = () => {
             }
           });
 
-          // Add scope-specific activities
-          if (analyticsData.scope === 'global' && newStats.totalCompanies > 0) {
-            activities.push({
-              id: "companies-count",
-              type: "company_created",
-              message: `Managing ${newStats.totalCompanies} companies`,
-              timestamp: new Date(),
-            });
-          }
-
-          if ((analyticsData.scope === 'company' || analyticsData.scope === 'global') && newStats.totalUsers > 0) {
+          // Add user/company specific activities
+          if ((user.role === 'company' || user.role === 'admin') && newStats.totalUsers > 0) {
             activities.push({
               id: "users-count",
               type: "user_added",
@@ -280,35 +422,69 @@ export const Dashboard: React.FC = () => {
             });
           }
 
-          // If no activities, add a default one based on role
-          if (activities.length === 0) {
-            let message = "Welcome to your dashboard!";
-            if (analyticsData.scope === 'company') {
-              message = "Company dashboard ready - start creating tasks!";
-            } else if (analyticsData.scope === 'user') {
-              message = "Your personal task dashboard - stay productive!";
+          // Add user-specific activities for create-task users
+          if (user.role === 'user' && canCreateTasks) {
+            if (recentActivity.tasks_created_by_me_last_7_days > 0) {
+              activities.push({
+                id: "created-by-me-7d",
+                type: "task_created",
+                message: `You created ${recentActivity.tasks_created_by_me_last_7_days} tasks in last 7 days`,
+                timestamp: new Date(),
+              });
             }
             
-            activities.push({
-              id: "welcome",
-              type: "task_created",
-              message: message,
-              timestamp: new Date(),
-            });
+            if (recentActivity.tasks_assigned_to_me_last_7_days > 0) {
+              activities.push({
+                id: "assigned-to-me-7d",
+                type: "task_created",
+                message: `${recentActivity.tasks_assigned_to_me_last_7_days} tasks assigned to you in last 7 days`,
+                timestamp: new Date(),
+              });
+            }
           }
+        }
 
-          setRecentActivities(activities);
-          console.log('[Dashboard] Analytics data loaded successfully');
-
-        } catch (analyticsError: any) {
-          console.error('[Dashboard] Analytics API failed:', {
-            error: analyticsError,
-            message: analyticsError.message,
-            status: analyticsError.response?.status,
-            data: analyticsError.response?.data
-          });
+        // If no activities, add a default one based on role
+        if (activities.length === 0) {
+          let message = "Welcome to your dashboard!";
+          switch (user.role) {
+            case 'super_admin':
+              message = "Global system overview ready";
+              break;
+            case 'company':
+              message = "Company dashboard ready - manage your team and tasks!";
+              break;
+            case 'admin':
+              message = "Admin dashboard ready - oversee tasks and users!";
+              break;
+            case 'user':
+              message = canCreateTasks 
+                ? "Your task management dashboard - create and track tasks!" 
+                : "Your personal task dashboard - stay productive!";
+              break;
+          }
           
-          // Fallback: Load basic task data
+          activities.push({
+            id: "welcome",
+            type: "task_created",
+            message: message,
+            timestamp: new Date(),
+          });
+        }
+
+        setRecentActivities(activities);
+        console.log('[Dashboard] Analytics data loaded successfully');
+
+      } catch (analyticsError: any) {
+        console.error('[Dashboard] Analytics API failed:', {
+          error: analyticsError,
+          message: analyticsError.message,
+          status: analyticsError.response?.status,
+          data: analyticsError.response?.data
+        });
+        
+        // Fallback: Load basic task data (only for non-super-admin roles)
+        if (user.role !== 'super_admin') {
           console.log('[Dashboard] Starting fallback data loading...');
           
           try {
@@ -318,7 +494,7 @@ export const Dashboard: React.FC = () => {
             if (user.role === 'user') {
               freshTasks = await tasksAPI.getMyTasks({ limit: 50 });
               console.log('[Dashboard] Loaded user tasks:', freshTasks?.length);
-            } else if (user.role === 'admin' || user.role === 'company' || user.role === 'super_admin') {
+            } else if (user.role === 'admin' || user.role === 'company') {
               freshTasks = await tasksAPI.getAllTasks({ limit: 50 });
               console.log('[Dashboard] Loaded all tasks:', freshTasks?.length);
             }
@@ -332,6 +508,9 @@ export const Dashboard: React.FC = () => {
             // Calculate stats from tasks
             const now = new Date();
             const fallbackStats: DashboardStats = {
+              totalUsers: 0,
+              totalCompanies: 0,
+              activeCompanies: 0,
               totalTasks: freshTasks.length,
               pendingTasks: freshTasks.filter(t => t.status === 'pending').length,
               inProgressTasks: freshTasks.filter(t => t.status === 'in_progress').length,
@@ -354,8 +533,6 @@ export const Dashboard: React.FC = () => {
                   return false;
                 }
               }).length,
-              totalUsers: 0,
-              totalCompanies: 0,
               activeUsers: 0,
               inactiveUsers: 0,
             };
@@ -411,14 +588,15 @@ export const Dashboard: React.FC = () => {
             
             // Set minimal working state
             setStats({
+              totalUsers: 0,
+              totalCompanies: 0,
+              activeCompanies: 0,
               totalTasks: 0,
               pendingTasks: 0,
               inProgressTasks: 0,
               completedTasks: 0,
               overdueTasks: 0,
               upcomingTasks: 0,
-              totalUsers: 0,
-              totalCompanies: 0,
               activeUsers: 0,
               inactiveUsers: 0,
             });
@@ -431,63 +609,86 @@ export const Dashboard: React.FC = () => {
             
             console.log('[Dashboard] Set minimal working state due to fallback failure');
           }
+        } else {
+          // For super admin, set minimal company stats
+          setStats({
+            totalUsers: 0,
+            totalCompanies: 0,
+            activeCompanies: 0,
+            totalTasks: 0,
+            pendingTasks: 0,
+            inProgressTasks: 0,
+            completedTasks: 0,
+            overdueTasks: 0,
+            upcomingTasks: 0,
+            activeUsers: 0,
+            inactiveUsers: 0,
+          });
+          setRecentActivities([{
+            id: "super-admin-error",
+            type: "company_created",
+            message: "Unable to load company data",
+            timestamp: new Date(),
+          }]);
         }
-
-        // Load additional role-specific data
-        try {
-          if (user.role === "super_admin") {
-            console.log('[Dashboard] Loading companies for super admin...');
-            await loadCompanies();
-          }
-          if (user.role === "admin" || user.role === "company") {
-            console.log('[Dashboard] Loading users for admin/company...');
-            await loadUsers();
-          }
-        } catch (roleSpecificError: any) {
-          console.error('[Dashboard] Role-specific data loading failed:', roleSpecificError);
-          // Don't fail the entire dashboard for role-specific data
-        }
-
-      } catch (generalError: any) {
-        console.error('[Dashboard] General dashboard loading error:', generalError);
-        
-        setError('Failed to load dashboard. Please try refreshing the page.');
-        setStats({
-          totalTasks: 0,
-          pendingTasks: 0,
-          inProgressTasks: 0,
-          completedTasks: 0,
-          overdueTasks: 0,
-          upcomingTasks: 0,
-          totalUsers: 0,
-          totalCompanies: 0,
-          activeUsers: 0,
-          inactiveUsers: 0,
-        });
-        setRecentActivities([{
-          id: "general-error",
-          type: "task_created",
-          message: "Dashboard temporarily unavailable",
-          timestamp: new Date(),
-        }]);
-      } finally {
-        console.log('[Dashboard] Finished loading dashboard data');
-        setLoading(false);
       }
-    };
 
-    if (location.pathname.includes("/dashboard") && user) {
-      console.log('[Dashboard] Conditions met, starting dashboard load...');
-      loadDashboardData();
-    } else {
-      console.log('[Dashboard] Conditions not met for loading:', { 
-        pathIncludes: location.pathname.includes("/dashboard"), 
-        hasUser: !!user,
-        currentPath: location.pathname
+      // Load additional role-specific data
+      try {
+        if (user.role === "super_admin") {
+          console.log('[Dashboard] Loading companies for super admin...');
+          await loadCompanies();
+        }
+        if (user.role === "admin" || user.role === "company") {
+          console.log('[Dashboard] Loading users for admin/company...');
+          await loadUsers();
+        }
+      } catch (roleSpecificError: any) {
+        console.error('[Dashboard] Role-specific data loading failed:', roleSpecificError);
+        // Don't fail the entire dashboard for role-specific data
+      }
+
+    } catch (generalError: any) {
+      console.error('[Dashboard] General dashboard loading error:', generalError);
+      
+      setError('Failed to load dashboard. Please try refreshing the page.');
+      setStats({
+        totalUsers: 0,
+        totalCompanies: 0,
+        activeCompanies: 0,
+        totalTasks: 0,
+        pendingTasks: 0,
+        inProgressTasks: 0,
+        completedTasks: 0,
+        overdueTasks: 0,
+        upcomingTasks: 0,
+        activeUsers: 0,
+        inactiveUsers: 0,
       });
+      setRecentActivities([{
+        id: "general-error",
+        type: "task_created",
+        message: "Dashboard temporarily unavailable",
+        timestamp: new Date(),
+      }]);
+    } finally {
+      console.log('[Dashboard] Finished loading dashboard data');
       setLoading(false);
     }
-  }, [user, location.pathname]);
+  };
+
+  if (location.pathname.includes("/dashboard") && user) {
+    console.log('[Dashboard] Conditions met, starting dashboard load...');
+    loadDashboardData();
+  } else {
+    console.log('[Dashboard] Conditions not met for loading:', { 
+      pathIncludes: location.pathname.includes("/dashboard"), 
+      hasUser: !!user,
+      currentPath: location.pathname
+    });
+    setLoading(false);
+  }
+}, [user, location.pathname]);
 
   const handleUserAction = async (action: string, userId: number) => {
     try {
@@ -538,11 +739,12 @@ export const Dashboard: React.FC = () => {
     );
   }
 
-  const statCards = [
-  // Company stats for super admin
+  // Updated stat cards configuration with proper role hierarchy
+const statCards = [
+  // ========== SUPER ADMIN CARDS ==========
   {
     title: 'Total Companies',
-    value: stats.totalCompanies,
+    value: stats.totalCompanies || 0,
     icon: Building,
     color: 'bg-cyan-500',
     show: user?.role === 'super_admin',
@@ -554,110 +756,218 @@ export const Dashboard: React.FC = () => {
     color: 'bg-emerald-500',
     show: user?.role === 'super_admin',
   },
-  
-  // Regular task stats for non-super-admin without create permission
+
+  // ========== COMPANY ROLE CARDS ==========
   {
-    title: 'My Tasks',
-    value: stats.totalTasks,
-    icon: CheckSquare,
-    color: 'bg-blue-500',
-    show: user?.role !== 'super_admin' && !stats.canCreateTasks,
+    title: 'Total Users',
+    value: stats.totalUsers || 0,
+    icon: Users,
+    color: 'bg-indigo-500',
+    show: user?.role === 'company',
   },
   {
-    title: 'Pending',
-    value: stats.pendingTasks,
+    title: 'Active Users',
+    value: stats.activeUsers || 0,
+    icon: Users, // Changed from UserCheck to Users (more commonly available)
+    color: 'bg-green-500',
+    show: user?.role === 'company',
+  },
+  {
+    title: 'Total Tasks',
+    value: stats.totalTasks || 0,
+    icon: CheckSquare,
+    color: 'bg-blue-500',
+    show: user?.role === 'company',
+  },
+  {
+    title: 'Pending Tasks',
+    value: stats.pendingTasks || 0,
     icon: Clock,
     color: 'bg-yellow-500',
-    show: user?.role !== 'super_admin' && !stats.canCreateTasks,
+    show: user?.role === 'company',
   },
   {
     title: 'In Progress',
-    value: stats.inProgressTasks,
+    value: stats.inProgressTasks || 0,
     icon: TrendingUp,
     color: 'bg-orange-500',
-    show: user?.role !== 'super_admin' && !stats.canCreateTasks,
+    show: user?.role === 'company',
   },
   {
     title: 'Completed',
-    value: stats.completedTasks,
+    value: stats.completedTasks || 0,
     icon: CheckCircle,
     color: 'bg-green-500',
-    show: user?.role !== 'super_admin' && !stats.canCreateTasks,
+    show: user?.role === 'company',
   },
-  
-  // Enhanced stats for users with create permission
   {
-    title: 'Assigned to Me',
-    value: stats.assignedToMe?.totalTasks || 0,
+    title: 'Overdue Tasks',
+    value: stats.overdueTasks || 0,
+    icon: AlertTriangle,
+    color: 'bg-red-500',
+    show: user?.role === 'company',
+  },
+
+  // ========== ADMIN ROLE CARDS ==========
+  {
+    title: 'Total Users',
+    value: stats.totalUsers || 0,
+    icon: Users,
+    color: 'bg-indigo-500',
+    show: user?.role === 'admin',
+  },
+  {
+    title: 'Active Users',
+    value: stats.activeUsers || 0,
+    icon: Users, // Changed from UserCheck to Users
+    color: 'bg-green-500',
+    show: user?.role === 'admin',
+  },
+  {
+    title: 'Total Tasks',
+    value: stats.totalTasks || 0,
     icon: CheckSquare,
     color: 'bg-blue-500',
-    show: user?.role !== 'super_admin' && stats.canCreateTasks,
+    show: user?.role === 'admin',
+  },
+  {
+    title: 'Pending Tasks',
+    value: stats.pendingTasks || 0,
+    icon: Clock,
+    color: 'bg-yellow-500',
+    show: user?.role === 'admin',
+  },
+  {
+    title: 'In Progress',
+    value: stats.inProgressTasks || 0,
+    icon: TrendingUp,
+    color: 'bg-orange-500',
+    show: user?.role === 'admin',
+  },
+  {
+    title: 'Completed',
+    value: stats.completedTasks || 0,
+    icon: CheckCircle,
+    color: 'bg-green-500',
+    show: user?.role === 'admin',
+  },
+  {
+    title: 'Overdue Tasks',
+    value: stats.overdueTasks || 0,
+    icon: AlertTriangle,
+    color: 'bg-red-500',
+    show: user?.role === 'admin',
   },
   {
     title: 'Assigned by Me',
     value: stats.assignedByMe?.totalTasks || 0,
-    icon: Users,
+    icon: Users, // Changed from UserPlus to Users
     color: 'bg-purple-500',
-    show: user?.role !== 'super_admin' && stats.canCreateTasks,
+    show: user?.role === 'admin',
   },
   {
-    title: 'My Pending',
-    value: stats.assignedToMe?.pendingTasks || 0,
+    title: 'Assigned to Me',
+    value: stats.assignedToMe?.totalTasks || 0,
+    icon: User,
+    color: 'bg-teal-500',
+    show: user?.role === 'admin',
+  },
+
+  // ========== USER ROLE CARDS (Basic - No Create Permission) ==========
+  {
+    title: 'Total Tasks',
+    value: stats.totalTasks || 0,
+    icon: CheckSquare,
+    color: 'bg-blue-500',
+    show: user?.role === 'user' && !stats.canCreateTasks,
+  },
+  {
+    title: 'Pending Tasks',
+    value: stats.pendingTasks || 0,
     icon: Clock,
     color: 'bg-yellow-500',
-    show: user?.role !== 'super_admin' && stats.canCreateTasks,
+    show: user?.role === 'user' && !stats.canCreateTasks,
+  },
+  {
+    title: 'Completed Tasks',
+    value: stats.completedTasks || 0,
+    icon: CheckCircle,
+    color: 'bg-green-500',
+    show: user?.role === 'user' && !stats.canCreateTasks,
+  },
+  {
+    title: 'Overdue Tasks',
+    value: stats.overdueTasks || 0,
+    icon: AlertTriangle,
+    color: 'bg-red-500',
+    show: user?.role === 'user' && !stats.canCreateTasks,
+  },
+  // {
+  //   title: 'Assigned to Me',
+  //   value: stats.assignedToMe?.totalTasks || 0,
+  //   icon: User,
+  //   color: 'bg-teal-500',
+  //   show: user?.role === 'user' && !stats.canCreateTasks,
+  // },
+
+  // ========== USER ROLE CARDS (With Create Permission) ==========
+  {
+    title: 'Total Tasks',
+    value: stats.totalTasks || 0,
+    icon: CheckSquare,
+    color: 'bg-blue-500',
+    show: user?.role === 'user' && stats.canCreateTasks,
+  },
+  {
+    title: 'Pending Tasks',
+    value: stats.pendingTasks || 0,
+    icon: Clock,
+    color: 'bg-yellow-500',
+    show: user?.role === 'user' && stats.canCreateTasks,
+  },
+  {
+    title: 'Completed Tasks',
+    value: stats.completedTasks || 0,
+    icon: CheckCircle,
+    color: 'bg-green-500',
+    show: user?.role === 'user' && stats.canCreateTasks,
+  },
+  {
+    title: 'Overdue Tasks',
+    value: stats.overdueTasks || 0,
+    icon: AlertTriangle,
+    color: 'bg-red-500',
+    show: user?.role === 'user' && stats.canCreateTasks,
+  },
+  {
+    title: 'Assigned to Me',
+    value: stats.assignedToMe?.totalTasks || 0,
+    icon: User,
+    color: 'bg-teal-500',
+    show: user?.role === 'user' && stats.canCreateTasks,
   },
   {
     title: 'Delegated Pending',
-    value: stats.assignedByMe?.pendingTasks || 0,
-    icon: AlertTriangle,
-    color: 'bg-orange-500',
-    show: user?.role !== 'super_admin' && stats.canCreateTasks,
-  },
-  {
-    title: 'My Completed',
-    value: stats.assignedToMe?.completedTasks || 0,
-    icon: CheckCircle,
-    color: 'bg-green-500',
-    show: user?.role !== 'super_admin' && stats.canCreateTasks,
+    value: stats.delegatedPending || stats.assignedByMe?.pendingTasks || 0,
+    icon: Clock,
+    color: 'bg-amber-500',
+    show: user?.role === 'user' && stats.canCreateTasks,
   },
   {
     title: 'Delegated Completed',
-    value: stats.assignedByMe?.completedTasks || 0,
+    value: stats.delegatedCompleted || stats.assignedByMe?.completedTasks || 0,
     icon: CheckCircle,
     color: 'bg-emerald-500',
-    show: user?.role !== 'super_admin' && stats.canCreateTasks,
-  },
-  
-  // Common overdue/upcoming for users
-  {
-    title: 'Overdue Tasks',
-    value: user?.role !== 'super_admin' && stats.canCreateTasks 
-      ? (stats.assignedToMe?.overdueTasks || 0) 
-      : (stats.overdueTasks || 0),
-    icon: AlertTriangle,
-    color: 'bg-red-500',
-    show: user?.role !== 'super_admin',
+    show: user?.role === 'user' && stats.canCreateTasks,
   },
   {
-    title: 'Upcoming Tasks',
-    value: user?.role !== 'super_admin' && stats.canCreateTasks 
-      ? (stats.assignedToMe?.upcomingTasks || 0) 
-      : (stats.upcomingTasks || 0),
-    icon: Calendar,
+    title: 'Assigned by Me',
+    value: stats.assignedByMe?.totalTasks || 0,
+    icon: Users, // Changed from UserPlus to Users
     color: 'bg-purple-500',
-    show: user?.role !== 'super_admin',
+    show: user?.role === 'user' && stats.canCreateTasks,
   },
-  
-  // User/company management stats
-  {
-    title: 'Total Users',
-    value: stats.totalUsers,
-   icon: Users,
-    color: 'bg-indigo-500',
-    show: user?.role === 'admin' || user?.role === 'company',
-  },
-]; // End of statCards array
+].filter(card => card.show);
 
 // Show team member section for admin and company roles
 const shouldShowUserSection = (user?.role === 'admin' || user?.role === 'company') && users.length > 0;
